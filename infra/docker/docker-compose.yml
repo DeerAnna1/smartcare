@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: med_postgres
+    environment:
+      POSTGRES_DB: medhelpagent
+      POSTGRES_USER: medhelp
+      POSTGRES_PASSWORD: medhelp_secret
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medhelp -d medhelpagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: med_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../../services/api
+      dockerfile: Dockerfile
+    container_name: med_api
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://medhelp:medhelp_secret@postgres:5432/medhelpagent
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://yunwu.ai/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
+      CORS_ORIGINS: "http://localhost:3001,http://localhost:3000"
+      ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../services/api:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8001
+    container_name: med_web
+    ports:
+      - "3001:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      API_URL: http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:

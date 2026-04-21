@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>临床精准助手 - 阶段性结论</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-secondary-fixed": "#00201d",
+                    "surface": "#f7f9fb",
+                    "on-secondary-container": "#006f66",
+                    "secondary-fixed": "#7cf6e7",
+                    "on-tertiary-fixed-variant": "#5e4200",
+                    "surface-container-highest": "#e0e3e5",
+                    "tertiary-fixed-dim": "#ffba20",
+                    "on-surface": "#191c1e",
+                    "surface-bright": "#f7f9fb",
+                    "on-primary-fixed": "#001356",
+                    "primary-container": "#2e5bff",
+                    "inverse-surface": "#2d3133",
+                    "outline": "#747688",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#dde1ff",
+                    "on-surface-variant": "#434656",
+                    "surface-tint": "#124af0",
+                    "on-primary-container": "#efefff",
+                    "secondary-fixed-dim": "#5ddacb",
+                    "on-error": "#ffffff",
+                    "secondary-container": "#79f4e5",
+                    "on-tertiary": "#ffffff",
+                    "on-background": "#191c1e",
+                    "outline-variant": "#c4c5d9",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "on-secondary-fixed-variant": "#005049",
+                    "error": "#ba1a1a",
+                    "on-tertiary-container": "#ffeed7",
+                    "primary-fixed-dim": "#b8c3ff",
+                    "surface-dim": "#d8dadc",
+                    "on-primary-fixed-variant": "#0035be",
+                    "inverse-primary": "#b8c3ff",
+                    "on-primary": "#ffffff",
+                    "surface-container": "#eceef0",
+                    "surface-variant": "#e0e3e5",
+                    "tertiary-fixed": "#ffdea8",
+                    "tertiary": "#704f00",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f2f4f6",
+                    "inverse-on-surface": "#eff1f3",
+                    "error-container": "#ffdad6",
+                    "on-tertiary-fixed": "#271900",
+                    "secondary": "#006a62",
+                    "tertiary-container": "#8f6600",
+                    "primary": "#0040e0",
+                    "background": "#f7f9fb"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', 'Microsoft YaHei', sans-serif; }
+        .font-manrope { font-family: 'Manrope', 'Microsoft YaHei', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel {
+            background: rgba(247, 249, 251, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-[#f7f9fb] dark:bg-[#191c1e] flex justify-between items-center px-8 py-3 w-full h-16 transition-all">
+<div class="flex items-center gap-8">
+<span class="font-manrope font-extrabold text-[#0040e0] dark:text-[#dde1ff] tracking-tighter text-xl">临床精准助手</span>
+<div class="hidden md:flex gap-6 items-center">
+<nav class="flex gap-6 font-manrope text-sm tracking-tight font-medium">
+<a class="text-[#0040e0] dark:text-[#dde1ff] font-bold border-b-2 border-[#0040e0] py-1" href="#">健康咨询</a>
+<a class="text-slate-500 dark:text-slate-400 font-medium hover:bg-[#f2f4f6] dark:hover:bg-[#2c2e31] transition-all px-2 py-1 rounded" href="#">常规执行</a>
+</nav>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<button class="p-2 text-slate-500 hover:bg-[#f2f4f6] rounded-full transition-all active:scale-95 duration-150">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-[#f2f4f6] rounded-full transition-all active:scale-95 duration-150">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-[#f2f4f6] rounded-full transition-all active:scale-95 duration-150">
+<span class="material-symbols-outlined">help</span>
+</button>
+</div>
+<div class="h-8 w-8 rounded-full overflow-hidden bg-primary-fixed border border-outline-variant">
+<img alt="医生头像" class="h-full w-full object-cover" data-alt="professional portrait of a medical doctor wearing a white coat and stethoscope in a bright clinical setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAnfJpE4LYTXrzIG0u698pUsepXWEGkP11Vx_21GWjc747xD4Pfl83K0fL8TgOsHZA0UE5glX9tkecwnSh1yvT5Cg2wBEi23hUrJplzd9pwe7-3XQ2ZXyM-we06mjq7S4VQo5dKeSmnUly4pDE6w3oPplqgZvvHl9Hp-7gW8iHFqWucXg2hufLMuXoO8Bs0AZJYFKBAEzRK2ryXwqg4yJEnrMqSRTbFSZgiYl-wpO3qqPLErf0073t8AMEbmOjK7cdMtS7SS7kViA"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-72 flex flex-col bg-[#f2f4f6] dark:bg-[#1d1e20] p-4 space-y-6 justify-between border-r-0">
+<div class="space-y-6">
+<div class="flex items-center gap-3 px-2 py-4">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined">medical_information</span>
+</div>
+<div>
+<h2 class="font-manrope font-bold text-lg text-[#0040e0] dark:text-[#dde1ff] leading-none">医疗助手</h2>
+<p class="text-[0.875rem] text-slate-500 leading-relaxed">随时为您诊断</p>
+</div>
+</div>
+<nav class="flex flex-col gap-1">
+<a class="bg-[#ffffff] dark:bg-[#2c2e31] text-[#0040e0] dark:text-[#dde1ff] font-bold rounded-xl px-4 py-3 mx-2 flex items-center gap-3 shadow-sm transition-all" href="#">
+<span class="material-symbols-outlined">medical_information</span>
+<span class="font-inter text-[0.875rem]">健康咨询</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">assignment_turned_in</span>
+<span class="font-inter text-[0.875rem]">常规执行</span>
+</a>
+</nav>
+<div class="px-2 pt-4">
+<button class="w-full bg-primary text-on-primary font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-md">
+<span class="material-symbols-outlined text-[20px]">add</span>
+<span>开启新咨询</span>
+</button>
+</div>
+</div>
+<div class="space-y-2 border-t border-outline-variant/10 pt-4">
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span class="font-inter text-[0.875rem]">技能管理</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-inter text-[0.875rem]">历史会话</span>
+</a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="ml-72 pt-20 p-8 min-h-screen">
+<div class="max-w-6xl mx-auto">
+<!-- Inquiry Settlement Header -->
+<div class="mb-10 flex justify-between items-end">
+<div>
+<span class="text-primary font-bold tracking-widest text-xs uppercase mb-2 block">问诊结算</span>
+<h1 class="font-manrope text-4xl font-extrabold text-on-surface tracking-tight">阶段性结论</h1>
+</div>
+<div class="flex items-center gap-2 text-sm font-medium bg-secondary-container/30 text-on-secondary-container px-4 py-2 rounded-full">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                会话已结束
+            </div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Left Column: Diagnostic Logic -->
+<div class="lg:col-span-8 space-y-8">
+<!-- 1. Preliminary Conclusion Card -->
+<section class="bg-surface-container-lowest rounded-xl p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] relative overflow-hidden">
+<div class="absolute top-0 right-0 p-6 opacity-10">
+<span class="material-symbols-outlined text-7xl">diagnosis</span>
+</div>
+<div class="relative z-10">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary">analytics</span>
+<h3 class="font-manrope font-bold text-xl">临床判断</h3>
+</div>
+<div class="bg-primary-fixed/30 rounded-xl p-6 border border-primary-fixed">
+<h2 class="font-manrope text-3xl font-bold text-on-primary-fixed-variant mb-3 leading-tight">疑似上呼吸道感染</h2>
+<p class="text-on-surface-variant leading-relaxed">基于患者报告的持续咳嗽（3天）、低热（38.1°C）以及颈部淋巴结肿大等症状。鉴别诊断包括病毒性鼻咽炎或急性支气管炎。</p>
+</div>
+</div>
+</section>
+<!-- 2. Triage Advice Bento -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<section class="bg-surface-container-low rounded-xl p-6 border-l-4 border-tertiary">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-tertiary">notification_important</span>
+<h4 class="font-manrope font-bold text-lg">分诊建议</h4>
+</div>
+<p class="text-on-surface mb-6">建议在 <span class="font-bold">24小时</span> 内咨询全科医生（GP），进行体格检查和潜在的咽拭子检测。</p>
+<div class="space-y-3">
+<div class="flex items-start gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-error text-base">warning</span>
+<span>若出现呼吸困难，请立即寻求急诊治疗。</span>
+</div>
+</div>
+</section>
+<section class="bg-secondary-container/10 rounded-xl p-6 border-l-4 border-secondary">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-secondary">medical_services</span>
+<h4 class="font-manrope font-bold text-lg">护理建议</h4>
+</div>
+<ul class="space-y-3 text-sm">
+<li class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>增加液体摄入（2.5升/天）</span>
+</li>
+<li class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>对乙酰氨基酚 500mg 用于退热</span>
+</li>
+<li class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>每日两次生理盐水洗鼻</span>
+</li>
+</ul>
+</section>
+</div>
+<!-- 3. Medical Preparation Summary -->
+<section class="bg-surface-container-low rounded-xl p-8">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-manrope font-bold text-xl">就医准备摘要</h3>
+<span class="text-xs font-bold text-slate-400 uppercase tracking-widest">元数据审计</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+<div class="bg-surface-container-lowest p-4 rounded-xl">
+<span class="text-xs text-slate-500 block mb-1">咨询时长</span>
+<span class="font-bold font-manrope">14分 22秒</span>
+</div>
+<div class="bg-surface-container-lowest p-4 rounded-xl">
+<span class="text-xs text-slate-500 block mb-1">分析信号</span>
+<span class="font-bold font-manrope">8 个数据点</span>
+</div>
+<div class="bg-surface-container-lowest p-4 rounded-xl">
+<span class="text-xs text-slate-500 block mb-1">置信度分数</span>
+<span class="font-bold font-manrope text-secondary">88% (高)</span>
+</div>
+</div>
+<div class="mt-8 p-4 bg-white/40 rounded-lg border border-outline-variant/10 text-sm italic text-on-surface-variant">
+                        "患者报告无哮喘史或常见抗生素过敏史。生命体征显示因发热引起轻度心动过速。"
+                    </div>
+</section>
+</div>
+<!-- Right Column: Workspace Execution / Event Card -->
+<div class="lg:col-span-4 space-y-8">
+<!-- Health Event Card (Confirmation Area) -->
+<div class="sticky top-24">
+<div class="mb-4 flex items-center justify-between">
+<h3 class="font-manrope font-bold text-lg">执行工作区</h3>
+<span class="px-2 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded uppercase tracking-tighter">草稿模式</span>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl shadow-xl overflow-hidden border border-primary/5">
+<div class="h-32 bg-gradient-to-br from-primary to-primary-container p-6 flex flex-col justify-end">
+<div class="flex justify-between items-start mb-auto">
+<div class="p-2 bg-white/20 rounded-lg backdrop-blur-md">
+<span class="material-symbols-outlined text-white">ecg_heart</span>
+</div>
+<span class="text-xs text-white/70 font-medium">事件 ID: HE-9920</span>
+</div>
+<h4 class="text-white font-manrope font-bold text-lg">呼吸道诊断</h4>
+</div>
+<div class="p-6 space-y-6">
+<div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">主要对象</span>
+<div class="flex items-center gap-3 mt-1">
+<div class="w-8 h-8 rounded-full bg-slate-200">
+<img alt="患者" class="w-full h-full rounded-full object-cover" data-alt="Close up portrait of a male patient for medical record identification" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3Kx9ZFGHVajBzPDhF2PcuOrdO20KJym_zpDw9ql_3ih7H1x3xVagalLtnJTtTDC3PR3efkJ9lT69ZmKSooph1vS4hfsPFIncUtKjxlWlNjn9woaPzOjTbzLcl4yh-WkCfa2rddOi5g2oedhENhe-wdGFm8vZc3SAnhd-w8Z2XcNWp3DR3iJYcC5UBq8Pw7QNaZmdIBiQpWBN14tR8mBx2lAmJbfh_RJ8-ACiQSPkZlO8V5hC50AmcBiFb0tLXH76WXwVnbo-2XA"/>
+</div>
+<span class="font-bold text-on-surface">Jameson, Robert (出生: 1988)</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between text-sm">
+<span class="text-slate-500">操作类型</span>
+<span class="font-medium">全科转诊</span>
+</div>
+<div class="flex justify-between text-sm">
+<span class="text-slate-500">优先级</span>
+<span class="text-tertiary font-bold">常规 (24小时)</span>
+</div>
+<div class="flex justify-between text-sm">
+<span class="text-slate-500">工作区目标</span>
+<span class="font-medium">临床待发箱</span>
+</div>
+</div>
+<div class="pt-6 space-y-3">
+<button class="w-full bg-primary text-on-primary font-bold py-4 rounded-xl flex items-center justify-center gap-3 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+<span class="material-symbols-outlined">send_and_archive</span>
+                                    确认并执行
+                                </button>
+<button class="w-full bg-surface-container-high text-on-surface-variant font-bold py-3 rounded-xl flex items-center justify-center gap-3 hover:bg-surface-variant transition-all">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+                                    调整参数
+                                </button>
+</div>
+</div>
+</div>
+<p class="mt-4 text-xs text-center text-slate-400 leading-relaxed px-4">
+                        确认后，此摘要将格式化为临床记录并发送至基层医疗网关。
+                    </p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Contextual FAB (Hidden on this transactional/focused screen per rules) -->
+</body></html>

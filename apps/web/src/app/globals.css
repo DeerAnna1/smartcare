@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  /* ===== 字体系统 ===== */
+  --font-body: 'Inter', 'Microsoft YaHei', sans-serif;
+  --font-headline: 'Manrope', 'Microsoft YaHei', sans-serif;
+  --font-manrope: 'Manrope', 'Microsoft YaHei', sans-serif;
+  --font-label: 'Inter', 'Microsoft YaHei', sans-serif;
+  --font-inter: 'Inter', 'Microsoft YaHei', sans-serif;
+
+  /* ===== Primary 色系 ===== */
+  --color-primary: #0040e0;
+  --color-primary-container: #2e5bff;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #efefff;
+  --color-primary-fixed: #dde1ff;
+  --color-primary-fixed-dim: #b8c3ff;
+  --color-on-primary-fixed: #001356;
+  --color-on-primary-fixed-variant: #0035be;
+  --color-inverse-primary: #b8c3ff;
+  --color-surface-tint: #124af0;
+
+  /* ===== Secondary 色系 ===== */
+  --color-secondary: #006a62;
+  --color-secondary-container: #79f4e5;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #006f66;
+  --color-secondary-fixed: #7cf6e7;
+  --color-secondary-fixed-dim: #5ddacb;
+  --color-on-secondary-fixed: #00201d;
+  --color-on-secondary-fixed-variant: #005049;
+
+  /* ===== Tertiary 色系 ===== */
+  --color-tertiary: #704f00;
+  --color-tertiary-container: #8f6600;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #ffeed7;
+  --color-tertiary-fixed: #ffdea8;
+  --color-tertiary-fixed-dim: #ffba20;
+  --color-on-tertiary-fixed: #271900;
+  --color-on-tertiary-fixed-variant: #5e4200;
+
+  /* ===== Error 色系 ===== */
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  /* ===== Surface 层次系统 ===== */
+  --color-surface: #f7f9fb;
+  --color-surface-dim: #d8dadc;
+  --color-surface-bright: #f7f9fb;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-container: #eceef0;
+  --color-surface-container-high: #e6e8ea;
+  --color-surface-container-highest: #e0e3e5;
+  --color-surface-variant: #e0e3e5;
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #434656;
+  --color-on-background: #191c1e;
+  --color-background: #f7f9fb;
+
+  /* ===== 轮廓 / 反转 ===== */
+  --color-outline: #747688;
+  --color-outline-variant: #c4c5d9;
+  --color-inverse-surface: #2d3133;
+  --color-inverse-on-surface: #eff1f3;
+}
+
+/* ===== 全局基础样式 ===== */
+body {
+  background-color: #f7f9fb;
+  color: #191c1e;
+  font-family: 'Inter', 'Microsoft YaHei', sans-serif;
+}
+
+/* Material Symbols 变量字体设置 */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Glassmorphism 浮层面板 */
+.glass-panel {
+  background: rgba(247, 249, 251, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 隐藏滚动条（保留功能） */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* 动画延迟工具类 */
+.delay-75 { animation-delay: 75ms; }
+.delay-150 { animation-delay: 150ms; }

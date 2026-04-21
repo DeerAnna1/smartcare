@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>健康档案整理 - 临床精准平台</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-secondary-fixed": "#00201d",
+                    "primary-container": "#2e5bff",
+                    "surface-variant": "#e0e3e5",
+                    "surface": "#f7f9fb",
+                    "tertiary-container": "#8f6600",
+                    "primary-fixed-dim": "#b8c3ff",
+                    "on-tertiary-fixed-variant": "#5e4200",
+                    "surface-container": "#eceef0",
+                    "on-error": "#ffffff",
+                    "tertiary-fixed-dim": "#ffba20",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#dde1ff",
+                    "error-container": "#ffdad6",
+                    "on-surface-variant": "#434656",
+                    "secondary-container": "#79f4e5",
+                    "on-primary-container": "#efefff",
+                    "on-background": "#191c1e",
+                    "surface-container-low": "#f2f4f6",
+                    "secondary": "#006a62",
+                    "tertiary-fixed": "#ffdea8",
+                    "surface-tint": "#124af0",
+                    "on-surface": "#191c1e",
+                    "on-primary-fixed": "#001356",
+                    "on-tertiary": "#ffffff",
+                    "surface-dim": "#d8dadc",
+                    "on-tertiary-fixed": "#271900",
+                    "outline": "#747688",
+                    "outline-variant": "#c4c5d9",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary": "#704f00",
+                    "surface-container-high": "#e6e8ea",
+                    "on-tertiary-container": "#ffeed7",
+                    "on-secondary": "#ffffff",
+                    "secondary-fixed-dim": "#5ddacb",
+                    "primary": "#0040e0",
+                    "on-secondary-fixed-variant": "#005049",
+                    "secondary-fixed": "#7cf6e7",
+                    "on-secondary-container": "#006f66",
+                    "error": "#ba1a1a",
+                    "on-primary": "#ffffff",
+                    "inverse-primary": "#b8c3ff",
+                    "inverse-on-surface": "#eff1f3",
+                    "on-primary-fixed-variant": "#0035be",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container-highest": "#e0e3e5",
+                    "background": "#f7f9fb",
+                    "inverse-surface": "#2d3133"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter", "system-ui", "sans-serif"],
+                    "label": ["Inter"]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar (Shared Component) -->
+<aside class="h-screen w-64 flex flex-col fixed left-0 top-0 bg-[#f2f4f6] dark:bg-slate-900 py-6 px-4 z-50">
+<div class="mb-10 px-2">
+<h1 class="text-lg font-bold text-[#191c1e] dark:text-white font-manrope">临床精准平台</h1>
+<p class="text-[0.6875rem] opacity-60 font-medium">AI 助手模式</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors hover:bg-[#f7f9fb] dark:hover:bg-slate-800 text-[#191c1e] dark:text-slate-400 opacity-70" href="#">
+<span class="material-symbols-outlined" data-icon="medical_services">medical_services</span>
+<span class="text-sm font-medium">健康咨询</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors hover:bg-[#f7f9fb] dark:hover:bg-slate-800 text-[#191c1e] dark:text-slate-400 opacity-70" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span class="text-sm font-medium">常规执行</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors hover:bg-[#f7f9fb] dark:hover:bg-slate-800 text-[#191c1e] dark:text-slate-400 opacity-70" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span class="text-sm font-medium">技能管理</span>
+</a>
+<!-- Active State: 存档会话 (Archive Sessions) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-[#0040e0] dark:text-blue-400 font-bold border-r-4 border-[#0040e0]" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-sm font-medium">存档会话</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1 border-t border-outline-variant/10 pt-4">
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-[#191c1e] dark:text-slate-400 opacity-70 hover:bg-[#f7f9fb] transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-sm font-medium">设置</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-[#191c1e] dark:text-slate-400 opacity-70 hover:bg-[#f7f9fb] transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="text-sm font-medium">帮助</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Shell -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar (Shared Component) -->
+<header class="flex justify-between items-center w-full pl-8 pr-8 py-3 sticky top-0 z-40 bg-[#f7f9fb]/70 backdrop-blur-xl shadow-sm opacity-90">
+<div class="flex items-center gap-4 flex-1">
+<div class="relative w-96">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm" data-icon="search">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 transition-all" placeholder="搜索患者姓名、诊断结果或日期..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="relative hover:opacity-80 transition-opacity text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full border-2 border-surface"></span>
+</button>
+<button class="hover:opacity-80 transition-opacity text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+</button>
+<div class="flex items-center gap-3 pl-4 border-l border-outline-variant/20">
+<div class="text-right">
+<p class="text-xs font-bold font-manrope">李医生</p>
+<p class="text-[10px] text-outline">主任医师</p>
+</div>
+<img class="w-10 h-10 rounded-full object-cover shadow-sm" data-alt="professional portrait of a male doctor in white clinical coat with warm lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlDo7e1r3kjaa5GiQwpxSibZdBDeDRaef5ZjeFq_mQGZogx9dPgdxJjLsokcUW1OkK9e61KzNwTu1vKpQZBXcNc5HuNfQ4p0HNuMw9pX2mbsBWqgDKr3S8Adbfz080mqa-hA3pBrVRpOt3eBBaLSyeaaBnd8KR9A5oP5zL-AhEJ-mB_oWayM9-L0pfe_U96vYam2f7Uyo1E6h56N9ry05vgFzJ4kl5riVxoPaRXCc7Axfg1XMOsaK-ExkLhE-T5nOFV8FEmbprQg"/>
+</div>
+</div>
+</header>
+<!-- Canvas Area -->
+<div class="p-8 max-w-7xl mx-auto">
+<!-- Page Header -->
+<div class="mb-10">
+<h2 class="text-3xl font-extrabold font-manrope text-on-surface tracking-tight mb-2">健康档案整理</h2>
+<p class="text-on-surface-variant max-w-2xl">AI Agent 已为您自动完成最近 24 小时的问诊数字化处理。您可以核对诊断结论并同步至院方 EHR 系统。</p>
+</div>
+<!-- Dashboard Stats (Editorial Style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-l-4 border-primary">
+<p class="text-[0.6875rem] font-semibold text-outline mb-1 uppercase tracking-wider">待同步档案</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-bold font-manrope">12</span>
+<span class="text-xs text-primary font-medium">需要关注</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-l-4 border-secondary">
+<p class="text-[0.6875rem] font-semibold text-outline mb-1 uppercase tracking-wider">今日已归档</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-bold font-manrope">48</span>
+<span class="text-xs text-secondary font-medium">+15% vs 昨日</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-l-4 border-tertiary">
+<p class="text-[0.6875rem] font-semibold text-outline mb-1 uppercase tracking-wider">AI 诊断置信度</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-bold font-manrope">98.4%</span>
+<span class="text-xs text-tertiary font-medium">高精准度</span>
+</div>
+</div>
+</div>
+<!-- Archive List - Bento Style Layout -->
+<div class="grid grid-cols-1 gap-4">
+<!-- Archive Item 1 (Active/Actionable) -->
+<div class="group bg-surface-container-low hover:bg-white transition-all duration-300 rounded-xl p-5 flex flex-col md:flex-row items-center gap-6 cursor-pointer">
+<div class="flex-shrink-0 w-12 h-12 bg-primary-fixed rounded-full flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="clinical_notes">clinical_notes</span>
+</div>
+<div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 w-full">
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">问诊日期</p>
+<p class="text-sm font-semibold">2023.10.24 14:30</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">初步结论</p>
+<p class="text-sm font-bold text-on-surface">疑似上呼吸道感染</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">处理状态</p>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已归档</span>
+<span class="px-2 py-0.5 bg-outline-variant/30 text-outline text-[10px] font-bold rounded-full">未同步 EHR</span>
+</div>
+</div>
+<div class="flex justify-end items-center gap-3">
+<button class="px-4 py-2 bg-primary text-white text-xs font-bold rounded-full hover:shadow-lg transition-shadow">同步至 EHR</button>
+</div>
+</div>
+<div class="flex gap-4 border-l border-outline-variant/20 pl-6">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="问诊回放">
+<span class="material-symbols-outlined" data-icon="play_circle">play_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="临床报告">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</button>
+</div>
+</div>
+<!-- Archive Item 2 -->
+<div class="group bg-surface-container-low hover:bg-white transition-all duration-300 rounded-xl p-5 flex flex-col md:flex-row items-center gap-6 cursor-pointer">
+<div class="flex-shrink-0 w-12 h-12 bg-secondary-fixed rounded-full flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="monitor_heart">monitor_heart</span>
+</div>
+<div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 w-full">
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">问诊日期</p>
+<p class="text-sm font-semibold">2023.10.24 11:15</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">初步结论</p>
+<p class="text-sm font-bold text-on-surface">心律不齐 (待复核)</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">处理状态</p>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已归档</span>
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已同步 EHR</span>
+</div>
+</div>
+<div class="flex justify-end items-center">
+<span class="text-[10px] text-secondary font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                同步成功
+                            </span>
+</div>
+</div>
+<div class="flex gap-4 border-l border-outline-variant/20 pl-6">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="问诊回放">
+<span class="material-symbols-outlined" data-icon="play_circle">play_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="临床报告">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</button>
+</div>
+</div>
+<!-- Archive Item 3 -->
+<div class="group bg-surface-container-low hover:bg-white transition-all duration-300 rounded-xl p-5 flex flex-col md:flex-row items-center gap-6 cursor-pointer">
+<div class="flex-shrink-0 w-12 h-12 bg-tertiary-fixed rounded-full flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" data-icon="dermatology">dermatology</span>
+</div>
+<div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 w-full">
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">问诊日期</p>
+<p class="text-sm font-semibold">2023.10.24 09:05</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">初步结论</p>
+<p class="text-sm font-bold text-on-surface">接触性皮炎</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">处理状态</p>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已归档</span>
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已同步 EHR</span>
+</div>
+</div>
+<div class="flex justify-end items-center">
+<span class="text-[10px] text-secondary font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                同步成功
+                            </span>
+</div>
+</div>
+<div class="flex gap-4 border-l border-outline-variant/20 pl-6">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="问诊回放">
+<span class="material-symbols-outlined" data-icon="play_circle">play_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="临床报告">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</button>
+</div>
+</div>
+<!-- Archive Item 4 -->
+<div class="group bg-surface-container-low hover:bg-white transition-all duration-300 rounded-xl p-5 flex flex-col md:flex-row items-center gap-6 cursor-pointer">
+<div class="flex-shrink-0 w-12 h-12 bg-primary-fixed rounded-full flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="radiology">radiology</span>
+</div>
+<div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 w-full">
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">问诊日期</p>
+<p class="text-sm font-semibold">2023.10.23 16:45</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">初步结论</p>
+<p class="text-sm font-bold text-on-surface">急性胃肠炎</p>
+</div>
+<div>
+<p class="text-[0.6875rem] text-outline font-medium mb-1">处理状态</p>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full">已归档</span>
+<span class="px-2 py-0.5 bg-outline-variant/30 text-outline text-[10px] font-bold rounded-full">未同步 EHR</span>
+</div>
+</div>
+<div class="flex justify-end items-center gap-3">
+<button class="px-4 py-2 bg-primary text-white text-xs font-bold rounded-full hover:shadow-lg transition-shadow">同步至 EHR</button>
+</div>
+</div>
+<div class="flex gap-4 border-l border-outline-variant/20 pl-6">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="问诊回放">
+<span class="material-symbols-outlined" data-icon="play_circle">play_circle</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-primary" title="临床报告">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Footer Pagination / Actions -->
+<div class="mt-12 flex justify-between items-center bg-surface-container-lowest p-4 rounded-xl shadow-sm">
+<div class="text-xs text-outline">显示 1-12 项，共 156 项档案</div>
+<div class="flex gap-2">
+<button class="p-2 hover:bg-surface-container-high rounded-lg text-primary disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center bg-primary text-white text-xs font-bold rounded-lg">1</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-high text-on-surface text-xs font-medium rounded-lg">2</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-high text-on-surface text-xs font-medium rounded-lg">3</button>
+<button class="p-2 hover:bg-surface-container-high rounded-lg text-primary">
+<span class="material-symbols-outlined" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Glassmorphism Floating Assistant Panel -->
+<div class="fixed bottom-8 right-8 w-80 bg-surface/70 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl p-6 hidden lg:block">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-2 h-2 bg-secondary rounded-full animate-pulse"></div>
+<h4 class="text-sm font-bold font-manrope">AI 档案分析助手</h4>
+</div>
+<p class="text-xs text-on-surface-variant leading-relaxed mb-4">
+                我已识别出 3 个异常诊断结果，建议您先复核“心律不齐”相关的临床报告后再进行 EHR 同步。
+            </p>
+<div class="space-y-2">
+<button class="w-full py-2 bg-primary-fixed text-on-primary-fixed text-xs font-bold rounded-xl hover:opacity-90 transition-opacity">查看待复核报告</button>
+<button class="w-full py-2 bg-surface-container-highest text-on-surface text-xs font-bold rounded-xl hover:bg-surface-variant transition-colors">忽略建议</button>
+</div>
+</div>
+</main>
+</body></html>

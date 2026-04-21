@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>灵枢医疗智能体 - 健康问诊</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-fixed": "#00201d",
+                        "surface": "#f7f9fb",
+                        "on-secondary-container": "#006f66",
+                        "secondary-fixed": "#7cf6e7",
+                        "on-tertiary-fixed-variant": "#5e4200",
+                        "surface-container-highest": "#e0e3e5",
+                        "tertiary-fixed-dim": "#ffba20",
+                        "on-surface": "#191c1e",
+                        "surface-bright": "#f7f9fb",
+                        "on-primary-fixed": "#001356",
+                        "primary-container": "#2e5bff",
+                        "inverse-surface": "#2d3133",
+                        "outline": "#747688",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dde1ff",
+                        "on-surface-variant": "#434656",
+                        "surface-tint": "#124af0",
+                        "on-primary-container": "#efefff",
+                        "secondary-fixed-dim": "#5ddacb",
+                        "on-error": "#ffffff",
+                        "secondary-container": "#79f4e5",
+                        "on-tertiary": "#ffffff",
+                        "on-background": "#191c1e",
+                        "outline-variant": "#c4c5d9",
+                        "on-secondary": "#ffffff",
+                        "surface-container-high": "#e6e8ea",
+                        "on-secondary-fixed-variant": "#005049",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#ffeed7",
+                        "primary-fixed-dim": "#b8c3ff",
+                        "surface-dim": "#d8dadc",
+                        "on-primary-fixed-variant": "#0035be",
+                        "inverse-primary": "#b8c3ff",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "surface-variant": "#e0e3e5",
+                        "tertiary-fixed": "#ffdea8",
+                        "tertiary": "#704f00",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f2f4f6",
+                        "inverse-on-surface": "#eff1f3",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#271900",
+                        "secondary": "#006a62",
+                        "tertiary-container": "#8f6600",
+                        "primary": "#0040e0",
+                        "background": "#f7f9fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope", "Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(247, 249, 251, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface overflow-hidden">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 flex justify-between items-center px-8 py-3 w-full h-16 bg-[#f7f9fb] dark:bg-[#191c1e] architecture">
+<div class="flex items-center gap-8">
+<span class="font-manrope font-extrabold text-[#0040e0] dark:text-[#dde1ff] tracking-tighter text-xl">灵枢医疗智能体</span>
+<div class="hidden md:flex gap-6 items-center">
+<a class="font-manrope text-sm tracking-tight font-bold text-[#0040e0] dark:text-[#dde1ff] border-b-2 border-[#0040e0] py-1" href="#">健康问诊</a>
+<a class="font-manrope text-sm tracking-tight font-medium text-slate-500 dark:text-slate-400 hover:bg-[#f2f4f6] px-2 py-1 rounded transition-all" href="#">通用执行</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-slate-400">search</span>
+<input class="bg-surface-container-high border-none rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/40 w-64" placeholder="搜索问诊记录..." type="text"/>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-slate-500 hover:bg-[#f2f4f6] rounded-full transition-all">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-[#f2f4f6] rounded-full transition-all">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-primary-fixed flex items-center justify-center ml-2 border border-outline-variant/20 overflow-hidden">
+<img alt="临床医生头像" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDb1JZQ6Trg5-BWyol-ZkuiRX5NawLTkEtTcK_pdmzIgExVuQubQvgANbuop0EfzFTmW6Q6GLAYB7XgrC_Ys70sqO-AwHogaKgm-0mpoIpslvaH2YQLJvt1Cl7kiVTEJCMZb0RSXnPexKRmJbnGvGg3mg0rWNqkCwCVaE_-5nhet0JOzhKKwxzP5KZeG8iRDvdCFjtktCiEnnmd4Ih8qlPqvnCV-Ct_Q540GIX6YA6a5ZAy5C6Puoq9Un6LpEmec5HnTSzyfs8J7w"/>
+</div>
+</div>
+</div>
+</nav>
+<div class="flex h-screen pt-16">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-72 flex flex-col bg-[#f2f4f6] dark:bg-[#1d1e20] p-4 space-y-6 justify-between shadow-sm z-40">
+<div class="space-y-6">
+<div class="flex items-center gap-3 px-2">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary">medical_information</span>
+</div>
+<div>
+<h3 class="font-manrope font-bold text-lg text-[#0040e0] dark:text-[#dde1ff] leading-none">医疗智能体</h3>
+<p class="text-xs text-slate-500 mt-1">诊断系统就绪</p>
+</div>
+</div>
+<button class="w-full py-3 px-4 bg-primary text-on-primary rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                发起新问诊
+            </button>
+<div class="space-y-1">
+<p class="text-[0.6875rem] font-bold text-slate-400 uppercase tracking-widest px-4 mb-2">最近会话</p>
+<div class="bg-[#ffffff] dark:bg-[#2c2e31] text-[#0040e0] dark:text-[#dde1ff] font-bold rounded-xl px-4 py-3 mx-2 flex items-center gap-3 cursor-pointer">
+<span class="material-symbols-outlined">medical_information</span>
+<span class="truncate font-inter text-[0.875rem]">健康问诊</span>
+</div>
+<div class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl transition-all flex items-center gap-3 cursor-pointer">
+<span class="material-symbols-outlined">assignment_turned_in</span>
+<span class="truncate font-inter text-[0.875rem]">通用执行</span>
+</div>
+</div>
+</div>
+<div class="space-y-1 pb-4">
+<div class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white rounded-xl transition-all flex items-center gap-3 cursor-pointer">
+<span class="material-symbols-outlined">extension</span>
+<span class="font-inter text-[0.875rem]">技能管理</span>
+</div>
+<div class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white rounded-xl transition-all flex items-center gap-3 cursor-pointer">
+<span class="material-symbols-outlined">history</span>
+<span class="font-inter text-[0.875rem]">存档会话</span>
+</div>
+</div>
+</aside>
+<!-- Main Workspace -->
+<main class="ml-72 flex-1 relative overflow-hidden flex flex-col bg-surface">
+<!-- Header/Breadcrumb -->
+<div class="px-8 py-4 bg-surface flex items-center justify-between z-10">
+<div class="flex items-center gap-2">
+<span class="text-slate-400 text-sm">工作区</span>
+<span class="text-slate-400 text-sm">/</span>
+<span class="text-on-surface font-semibold text-sm">急性症状分析</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="flex h-2 w-2 rounded-full bg-secondary"></span>
+<span class="text-xs font-medium text-secondary">系统已校准</span>
+</div>
+</div>
+<!-- Chat Canvas -->
+<div class="flex-1 overflow-y-auto px-8 pb-32 space-y-8 max-w-4xl mx-auto w-full pt-4">
+<!-- AI Welcome -->
+<div class="flex gap-6 items-start">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center shrink-0 border border-primary/10 shadow-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex-1 space-y-4">
+<div class="bg-surface-container-lowest p-6 rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm">
+<p class="font-headline font-bold text-primary text-sm mb-2 uppercase tracking-wide">诊断助手</p>
+<p class="text-on-surface leading-relaxed">我已启动临床问诊规程。首先，请描述患者的主诉以及您在初步接诊中观察到的任何显著症状。</p>
+</div>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex gap-6 items-start flex-row-reverse">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center shrink-0 border border-outline-variant/20 shadow-sm">
+<span class="material-symbols-outlined text-on-surface-variant">person</span>
+</div>
+<div class="flex-1 flex justify-end">
+<div class="bg-primary text-on-primary p-6 rounded-2xl rounded-tr-none shadow-lg shadow-primary/10 max-w-[80%]">
+<p class="leading-relaxed">患者主诉剑突下剧烈疼痛，向背部放射。约 3 小时前饱餐后发作。既往无类似病史。</p>
+</div>
+</div>
+</div>
+<!-- AI Analysis & Questions -->
+<div class="flex gap-6 items-start">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center shrink-0 border border-primary/10 shadow-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex-1 space-y-6">
+<div class="bg-surface-container-lowest p-6 rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm">
+<div class="flex items-center gap-3 mb-4">
+<div class="px-3 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-[0.6875rem] font-bold tracking-tight">分析进行中</div>
+<div class="px-3 py-1 rounded-full bg-secondary-container text-on-secondary-container text-[0.6875rem] font-bold tracking-tight">症状映射</div>
+</div>
+<p class="text-on-surface leading-relaxed mb-6">了解。餐后出现的剑突下疼痛伴背部放射可能指向几种关键病理。为了完善鉴别诊断，我需要更多信息：</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="p-4 bg-surface-container rounded-xl border-l-4 border-primary">
+<p class="font-headline font-bold text-sm text-on-surface mb-1">性质与严重程度</p>
+<p class="text-sm text-on-surface-variant">疼痛程度是持续稳定的，还是呈进行性加剧？</p>
+</div>
+<div class="p-4 bg-surface-container rounded-xl border-l-4 border-secondary">
+<p class="font-headline font-bold text-sm text-on-surface mb-1">伴随症状</p>
+<p class="text-sm text-on-surface-variant">是否有恶心、呕吐或大汗淋漓等体征？</p>
+</div>
+</div>
+</div>
+<!-- Risk Flag Section -->
+<div class="bg-error-container/30 border border-error/10 p-6 rounded-2xl flex items-start gap-4">
+<span class="material-symbols-outlined text-error" style="font-variation-settings: 'FILL' 1;">warning</span>
+<div>
+<h4 class="font-headline font-bold text-error text-sm">风险识别：胰源性 vs. 胆源性</h4>
+<p class="text-xs text-on-error-container mt-1 leading-relaxed">向背部放射是急性胰腺炎的高敏感性指标。如果症状持续或加剧，建议紧急进行血清脂肪酶检测及右上腹超声检查。</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Thinking State -->
+<div class="flex gap-6 items-start opacity-70">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center shrink-0 border border-primary/10">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex items-center gap-2 py-4">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse delay-75"></div>
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse delay-150"></div>
+<span class="text-xs font-semibold text-primary ml-2 uppercase tracking-widest">智能体正在处理临床相关性分析...</span>
+</div>
+</div>
+</div>
+<!-- Input Inquiry Zone -->
+<div class="absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-surface via-surface to-transparent">
+<div class="max-w-4xl mx-auto relative">
+<div class="glass-panel border border-outline-variant/20 rounded-[1.5rem] p-2 flex items-end gap-2 shadow-2xl shadow-primary/5">
+<div class="flex-1 relative">
+<textarea class="w-full bg-transparent border-none focus:ring-0 px-4 py-4 text-on-surface placeholder:text-slate-400 resize-none font-body" placeholder="提供更多症状细节或实验室检查值..." rows="1"></textarea>
+</div>
+<div class="flex items-center gap-2 pb-2 pr-2">
+<button class="p-3 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<button class="p-3 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all">
+<span class="material-symbols-outlined">mic</span>
+</button>
+<button class="bg-primary text-on-primary p-3 rounded-xl shadow-md hover:shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+<div class="mt-3 flex justify-center gap-6">
+<div class="flex items-center gap-2 text-[0.6875rem] text-slate-400 font-medium">
+<span class="material-symbols-outlined text-xs">verified_user</span>
+                        符合 HIPAA 规范的会话
+                    </div>
+<div class="flex items-center gap-2 text-[0.6875rem] text-slate-400 font-medium">
+<span class="material-symbols-outlined text-xs">database</span>
+                        参考文献：BMJ Journals, PubMed
+                    </div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Floating Action for Quick Reference (Asymmetric placement) -->
+<button class="fixed right-8 bottom-32 w-14 h-14 bg-surface-container-lowest border border-outline-variant/20 rounded-2xl shadow-xl flex items-center justify-center text-primary hover:bg-primary-fixed transition-all z-50">
+<span class="material-symbols-outlined">auto_stories</span>
+</button>
+</body></html>

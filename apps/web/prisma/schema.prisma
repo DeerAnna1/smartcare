@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  accountId   String   @unique
+  profile     String   @default("{}")
+  preferences String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  sessions  ConsultationSession[]
+  events    HealthEvent[]
+  records   HealthRecord[]
+}
+
+model ConsultationSession {
+  id              String   @id @default(uuid())
+  userId          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  rawMessages     String   @default("[]")
+  extractedFields String   @default("{}")
+  triageLevel     String   @default("observe")
+  summary         String   @default("")
+  status          String   @default("active")
+
+  user   User          @relation(fields: [userId], references: [id])
+  events HealthEvent[]
+}
+
+model HealthEvent {
+  id                           String   @id @default(uuid())
+  userId                       String
+  sourceSessionId              String
+  createdAt                    DateTime @default(now())
+  status                       String   @default("draft")
+
+  chiefComplaint               String   @default("")
+  symptomSummary               String   @default("[]")
+  duration                     String   @default("")
+  severity                     String   @default("")
+  confirmedPoints              String   @default("[]")
+  uncertainPoints              String   @default("[]")
+  redFlags                     String   @default("[]")
+  candidateConditions          String   @default("[]")
+  triageLevel                  String   @default("observe")
+  recommendedDepartment        String   @default("")
+  visitPreparation             String   @default("[]")
+  careTodos                    String   @default("[]")
+  medicationReminderSuggestion String   @default("[]")
+  followupReminderSuggestion   String   @default("[]")
+  recordUpdateSuggestion       Boolean  @default(false)
+  insuranceMaterialSuggestion  String   @default("[]")
+
+  user     User                @relation(fields: [userId], references: [id])
+  session  ConsultationSession @relation(fields: [sourceSessionId], references: [id])
+  reminders ReminderTask[]
+  records  HealthRecord[]
+}
+
+model ReminderTask {
+  id          String   @id @default(uuid())
+  eventId     String?
+  taskType    String   @default("medication")
+  title       String   @default("")
+  description String   @default("")
+  schedule    String   @default("{}")
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event HealthEvent? @relation(fields: [eventId], references: [id])
+}
+
+model HealthRecord {
+  id             String   @id @default(uuid())
+  userId         String
+  eventId        String?
+  title          String   @default("")
+  department     String   @default("")
+  tags           String   @default("[]")
+  structuredData String   @default("{}")
+  syncStatus     String   @default("pending")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User         @relation(fields: [userId], references: [id])
+  event HealthEvent? @relation(fields: [eventId], references: [id])
+}
+
+model SkillPackage {
+  id              String   @id @default(uuid())
+  skillId         String   @unique
+  name            String   @default("")
+  description     String   @default("")
+  category        String   @default("")
+  keywords        String   @default("[]")
+  sourceType      String   @default("upload")
+  repoUrl         String   @default("")
+  version         String   @default("1.0.0")
+  manifest        String   @default("{}")
+  status          String   @default("active")
+  triggerExamples String   @default("[]")
+  permissions     String   @default("[]")
+  confirmRequired Boolean  @default(false)
+  mcpServer       String   @default("")
+  tools           String   @default("[]")
+  degradePolicy   String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  logs ToolInvocationLog[]
+}
+
+model ToolInvocationLog {
+  id              String   @id @default(uuid())
+  skillPackageId  String?
+  toolName        String   @default("")
+  requestPayload  String   @default("{}")
+  responsePayload String   @default("{}")
+  latency         Int      @default(0)
+  resultStatus    String   @default("success")
+  errorReason     String   @default("")
+  userId          String?
+  actionType      String   @default("")
+  confirmed       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  skillPackage SkillPackage? @relation(fields: [skillPackageId], references: [id])
+}

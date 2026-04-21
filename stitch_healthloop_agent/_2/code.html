@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>确认健康事件卡片 | 临床精密智能代理 (Clinical Precision Agent)</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Manrope & Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-secondary-fixed": "#00201d",
+                    "surface": "#f7f9fb",
+                    "on-secondary-container": "#006f66",
+                    "secondary-fixed": "#7cf6e7",
+                    "on-tertiary-fixed-variant": "#5e4200",
+                    "surface-container-highest": "#e0e3e5",
+                    "tertiary-fixed-dim": "#ffba20",
+                    "on-surface": "#191c1e",
+                    "surface-bright": "#f7f9fb",
+                    "on-primary-fixed": "#001356",
+                    "primary-container": "#2e5bff",
+                    "inverse-surface": "#2d3133",
+                    "outline": "#747688",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#dde1ff",
+                    "on-surface-variant": "#434656",
+                    "surface-tint": "#124af0",
+                    "on-primary-container": "#efefff",
+                    "secondary-fixed-dim": "#5ddacb",
+                    "on-error": "#ffffff",
+                    "secondary-container": "#79f4e5",
+                    "on-tertiary": "#ffffff",
+                    "on-background": "#191c1e",
+                    "outline-variant": "#c4c5d9",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "on-secondary-fixed-variant": "#005049",
+                    "error": "#ba1a1a",
+                    "on-tertiary-container": "#ffeed7",
+                    "primary-fixed-dim": "#b8c3ff",
+                    "surface-dim": "#d8dadc",
+                    "on-primary-fixed-variant": "#0035be",
+                    "inverse-primary": "#b8c3ff",
+                    "on-primary": "#ffffff",
+                    "surface-container": "#eceef0",
+                    "surface-variant": "#e0e3e5",
+                    "tertiary-fixed": "#ffdea8",
+                    "tertiary": "#704f00",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f2f4f6",
+                    "inverse-on-surface": "#eff1f3",
+                    "error-container": "#ffdad6",
+                    "on-tertiary-fixed": "#271900",
+                    "secondary": "#006a62",
+                    "tertiary-container": "#8f6600",
+                    "primary": "#0040e0",
+                    "background": "#f7f9fb"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+                    "body": ["Inter", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+                    "label": ["Inter", "PingFang SC", "Microsoft YaHei", "sans-serif"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(247, 249, 251, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface antialiased">
+<!-- TopNavBar (Shared Component) -->
+<nav class="fixed top-0 w-full z-50 bg-[#f7f9fb] dark:bg-[#191c1e] flex justify-between items-center px-8 py-3 w-full h-16">
+<div class="flex items-center gap-8">
+<span class="font-manrope font-extrabold text-[#0040e0] dark:text-[#dde1ff] tracking-tighter text-xl">Clinical Precision Agent</span>
+<div class="hidden md:flex items-center gap-6">
+<a class="text-[#0040e0] dark:text-[#dde1ff] font-bold border-b-2 border-[#0040e0] font-manrope text-sm tracking-tight" href="#">健康问诊</a>
+<a class="text-slate-500 dark:text-slate-400 font-medium hover:bg-[#f2f4f6] dark:hover:bg-[#2c2e31] transition-all font-manrope text-sm tracking-tight px-2 py-1 rounded" href="#">常规执行</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+<input class="bg-surface-container-high border-none rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-primary/40 w-64" placeholder="搜索问诊..." type="text"/>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 rounded-full hover:bg-[#f2f4f6] text-slate-600"><span class="material-symbols-outlined">notifications</span></button>
+<button class="p-2 rounded-full hover:bg-[#f2f4f6] text-slate-600"><span class="material-symbols-outlined">settings</span></button>
+<div class="h-8 w-8 rounded-full overflow-hidden ml-2 ring-2 ring-primary/10">
+<img class="h-full w-full object-cover" data-alt="Close-up portrait of a professional male doctor with glasses and a white lab coat in a bright clinical setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYPxVhds5vq1FniGvHVlnREM0pmwQXCsUD5HB0S7nWa6sJmhUKG33eZxeV7d_2RfIFrDobuWFBESiIn1gE3X1cYHkOuHVPCFTu_v6PxysAJ32hSt55jKKV5KtqrLSiM1AZmuIO-aqZYHMoOeGmZS-gJ2PsnAqbxM4afJeYY5rYisigS_Me3y0CL4cTmk9CqqRrZCpITJ2sscR3PcNdFx4kSj7nw0qsb9jS0S0PzcH5rHc3ewbBPwmPzSjbvzzuRdZHStz96J0GbA"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- SideNavBar (Shared Component) -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-72 flex flex-col bg-[#f2f4f6] dark:bg-[#1d1e20] p-4 space-y-6">
+<div class="px-4 py-2">
+<div class="flex items-center gap-3 mb-1">
+<div class="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">clinical_notes</span>
+</div>
+<div>
+<h2 class="font-manrope font-bold text-lg text-[#0040e0] dark:text-[#dde1ff]">医疗代理</h2>
+<p class="text-xs text-slate-500">已就绪，可进行诊断</p>
+</div>
+</div>
+</div>
+<div class="flex-1 space-y-1">
+<a class="bg-[#ffffff] dark:bg-[#2c2e31] text-[#0040e0] dark:text-[#dde1ff] font-bold rounded-xl px-4 py-3 mx-2 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined">medical_information</span>
+<span>健康问诊</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">assignment_turned_in</span>
+<span>常规执行</span>
+</a>
+<div class="pt-4 pb-2 px-6">
+<span class="text-[0.6875rem] font-bold uppercase tracking-widest text-slate-400">管理</span>
+</div>
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span>技能管理</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 font-medium px-4 py-3 mx-2 hover:bg-white/50 rounded-xl flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined">history</span>
+<span>历史记录</span>
+</a>
+</div>
+<button class="bg-primary text-on-primary py-3 px-6 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all">
+<span class="material-symbols-outlined">add</span>
+            新建问诊
+        </button>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-72 mt-16 p-8 min-h-[calc(100vh-64px)] relative flex flex-col items-center justify-center">
+<!-- Background Decorative Elements -->
+<div class="absolute inset-0 overflow-hidden pointer-events-none">
+<div class="absolute -top-24 -right-24 w-96 h-96 bg-primary/5 rounded-full blur-3xl"></div>
+<div class="absolute bottom-48 left-12 w-64 h-64 bg-secondary/5 rounded-full blur-3xl"></div>
+</div>
+<!-- Breadcrumb & Workspace Header -->
+<div class="w-full max-w-4xl mb-8 flex justify-between items-end">
+<div>
+<nav class="flex items-center gap-2 text-xs text-slate-500 mb-2">
+<span>问诊工作区</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-primary font-medium">事件暂存</span>
+</nav>
+<h1 class="text-3xl font-headline font-extrabold tracking-tight text-on-surface">确认健康事件</h1>
+</div>
+<div class="bg-primary-fixed px-4 py-2 rounded-full border border-primary/10">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold text-on-primary-fixed tracking-tight uppercase">就绪待传输</span>
+</div>
+</div>
+</div>
+<!-- The Modal/Transition View (High-End Editorial Layout) -->
+<div class="w-full max-w-4xl grid grid-cols-12 gap-6 relative z-10">
+<!-- Health Event Card (The Star) -->
+<div class="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-3xl shadow-xl shadow-on-surface/5 overflow-hidden flex flex-col border border-primary/5">
+<!-- Header of the Card -->
+<div class="bg-gradient-to-r from-primary to-primary-container p-8 text-on-primary relative">
+<div class="absolute top-0 right-0 p-8 opacity-20">
+<span class="material-symbols-outlined text-6xl" style="font-variation-settings: 'FILL' 1;">pill</span>
+</div>
+<div class="relative z-10">
+<div class="inline-flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm mb-4">
+<span class="material-symbols-outlined text-sm">event_repeat</span>
+<span class="text-[10px] font-bold tracking-widest uppercase">用药设置</span>
+</div>
+<h2 class="text-3xl font-headline font-extrabold mb-1">赖诺普利方案</h2>
+<p class="text-on-primary/80 font-medium text-sm">高血压管理常规流程</p>
+</div>
+</div>
+<!-- Card Details Body (Bento Style) -->
+<div class="p-8 grid grid-cols-2 gap-8">
+<!-- Section: Core Prescription -->
+<div class="col-span-2 md:col-span-1 flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">药物与剂量</span>
+<div class="flex items-baseline gap-2">
+<span class="text-xl font-bold text-on-surface">10mg</span>
+<span class="text-slate-500 font-medium">口服片剂</span>
+</div>
+<p class="text-sm text-slate-600 leading-relaxed">每日服用一次，建议于早晨 08:00 AM 服用。</p>
+</div>
+<!-- Section: Timing -->
+<div class="col-span-2 md:col-span-1 flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">频率</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="text-xl font-bold text-on-surface">每日循环</span>
+</div>
+<p class="text-sm text-slate-600 leading-relaxed">持续执行，直至下一个临床审查周期。</p>
+</div>
+<!-- Section: Source Tracking -->
+<div class="col-span-2 bg-surface-container-low rounded-2xl p-6 flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="h-12 w-12 rounded-xl bg-white flex items-center justify-center text-primary border border-primary/5">
+<span class="material-symbols-outlined">chat_paste_go</span>
+</div>
+<div>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">信息来源</span>
+<p class="font-bold text-on-surface">问诊会话 #1042</p>
+<p class="text-xs text-slate-500">患者: Sarah Jenkins (心脏复查)</p>
+</div>
+</div>
+<div class="flex -space-x-2">
+<img class="h-8 w-8 rounded-full border-2 border-white object-cover" data-alt="Professional female doctor with stethoscope in a clean laboratory setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAxpJE_GpXQueqYD--sqhnKGOpMRMhnaN0sb0OtP2wzt43pdRVg8ML272S9DyyJQOYrvv9Tbr2yT9O7blFmbBPq9D2UcilI0fDUpCUsTNhIlguXGkmbFOPDt_QbQM7CjLIjwPOWa5yt49aenEKBijz_PgWm-MxMru2ZPaSLVxBgQxaxP-O6qf-B3n9VWkViu6T04ZyuDJqPcntBETgjbTXYzSaF0cXTVL2VumFi7OBSUeTN-EeJMra5e2cq94osrnuOCPIeVpWsEw"/>
+<div class="h-8 w-8 rounded-full bg-primary-container text-[10px] flex items-center justify-center text-on-primary-container font-bold border-2 border-white">AI</div>
+</div>
+</div>
+</div>
+<!-- Action Footer -->
+<div class="p-8 pt-0 flex gap-4">
+<button class="flex-1 bg-primary text-on-primary py-4 px-6 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 shadow-xl shadow-primary/25 hover:shadow-primary/40 transition-all active:scale-[0.98]">
+                        确认并发送执行
+                        <span class="material-symbols-outlined">rocket_launch</span>
+</button>
+<button class="px-6 rounded-2xl font-bold text-primary hover:bg-primary-fixed transition-all border-2 border-primary-fixed">
+                        修改详情
+                    </button>
+</div>
+</div>
+<!-- Transfer Sidebar (Contextual Info) -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<!-- Workspace Bridge Visual -->
+<div class="glass-panel p-6 rounded-3xl border border-white/40 flex flex-col gap-4">
+<h3 class="font-headline font-bold text-slate-800">工作区连接器</h3>
+<div class="space-y-4">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-slate-500">search</span>
+</div>
+<div class="flex-1 h-0.5 bg-slate-200 relative">
+<div class="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary ring-4 ring-primary/20"></div>
+</div>
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">play_arrow</span>
+</div>
+</div>
+<p class="text-xs text-slate-500 leading-relaxed italic">
+                            此操作将把经验证的医疗记录移至“执行区”，以便进行患者交付和自动化随访。
+                        </p>
+</div>
+</div>
+<!-- AI Confidence Card -->
+<div class="bg-surface-container-highest/30 p-6 rounded-3xl border border-slate-200">
+<div class="flex items-center justify-between mb-4">
+<span class="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">AI 逻辑审计</span>
+<div class="text-secondary flex items-center gap-1">
+<span class="text-sm font-bold">98%</span>
+<span class="material-symbols-outlined text-xs">verified</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span class="text-xs font-medium text-slate-700">剂量与临床医生建议相符</span>
+</div>
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+<span class="text-xs font-medium text-slate-700">未检测到药物相互作用</span>
+</div>
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-tertiary text-sm">info</span>
+<span class="text-xs font-medium text-slate-700">建议监测生命体征：血压</span>
+</div>
+</div>
+</div>
+<!-- Quick Preview Action -->
+<div class="relative group cursor-pointer overflow-hidden rounded-3xl h-32">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="A clean modern healthcare digital interface on a tablet showing patient heart rate graphs and medical data" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhKoXaXB4zAFWiMPnCrvDlvezdLioK6Vqcxy85i0_hVKBaJUcORRZjiiNALuvpAETsMqPKrdBOGH_-vGPK0vFYjq2J8yz1ZXJVoIN00w8xw-_sJ0SK7C75T4mlFZPz_Zoo4LKV7OxouhPwahL5E9gf7w4-qjNWxACXgkTCbfiqJpyXI_kfo_8ibW-LDqJW7AQwb3fpWC4NWKglEPPLrnXegSZN4yCQaMAeSyv4E4ngrvTYJOrO8VmZLLFhAJ1FXX5WCPhNbdDg9Q"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-4">
+<span class="text-white text-xs font-bold flex items-center gap-2">
+                            查看完整患者档案
+                            <span class="material-symbols-outlined text-sm">open_in_new</span>
+</span>
+</div>
+</div>
+</div>
+</div>
+<!-- System Message Overlay (Floating Bottom) -->
+<div class="fixed bottom-12 left-1/2 -translate-x-1/2 z-50">
+<div class="bg-on-surface text-surface px-6 py-3 rounded-full flex items-center gap-3 shadow-2xl">
+<span class="material-symbols-outlined text-primary-fixed-dim">lock</span>
+<span class="text-sm font-medium tracking-tight">安全协议已启动：执行前需进行临床审查</span>
+</div>
+</div>
+</main>
+</body></html>
