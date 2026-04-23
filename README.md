@@ -1,11 +1,16 @@
 ## 项目已部署上线：https://smartcare-web-production.up.railway.app/
 
+adb reverse tcp:8001 tcp:8001
+docker compose -f infra/docker/docker-compose.yml up -d --build
+
 一个面向家庭健康场景的全栈应用，包含：
 - 健康问诊与结论生成
 - 药物相互作用查询技能
 - 挂号预约技能
 - 健康档案（EHR）生成与管理
 - 技能管理（接入、调用、日志）
+- 患者心率模拟，用于联调问诊链路。
+- 手机端调整心率，web网页会同时感知到心率变化，发生心率风险会触发真人医生接管。
 
 ## 1. 项目结构
 
@@ -19,6 +24,10 @@
 - 后端：FastAPI、SQLAlchemy、Pydantic
 - 数据库：PostgreSQL
 - 缓存：Redis
+- 生命体征接入：IoT `simulate` / `webhook` 双通道、HMAC-SHA256 签名校验、自动风险分级与接管触发
+- 移动端模拟器方案：
+  - Web 方案：`apps/web` 内置心率模拟页面（推荐联调）
+  - Android 原生方案：`Heartbeat-AndroidNative`（Kotlin + OkHttp + Android Studio APK）
 - 部署：Docker / Railway
 
 #### 2.1 AI / Agent 与 Skill 现状
@@ -50,6 +59,12 @@ cd infra/docker
 cp .env.example .env
 ```
 
+说明：
+
+- 当前项目的主业务接口要求登录后访问，前端受保护页面会跳转到 `/auth`
+- 后端数据库 schema 目前采用“开发环境可自动建表，正式环境建议 Alembic 迁移”的兼容策略
+- 若在非开发环境部署，建议显式设置 `AUTO_CREATE_TABLES=false`
+
 ### 3.2 启动所有服务
 
 在项目根目录执行：
@@ -64,11 +79,36 @@ docker compose -f infra/docker/docker-compose.yml up -d --build
 - 后端文档：http://localhost:8001/docs
 - 健康检查：http://localhost:8001/health
 
-## 4. 技能接入说明（技能管理页）
+## 4. 网页心率模拟中心（推荐联调入口）
+为避免手机 App 打包/网络策略带来的不确定性，项目已提供网页端心率模拟入口：
+
+- 路由：`/iot-simulator`
+- 功能：
+  - 调整心率（`+/-1`、`+/-5`、预设 `70/105/128`）
+  - 单次推送、连续推送
+  - 实时查看请求/响应日志
+  - 查看后端最近生命体征与风险等级
+
+## 5. Heartbeat-AndroidNative（Android Studio 打包 APK）
+
+### 5.1 打包步骤
+
+1. Android Studio 打开 `Heartbeat-AndroidNative`
+2. 等待 Gradle Sync 完成
+3. 菜单：`Build > Build Bundle(s) / APK(s) > Build APK(s)`
+4. 构建完成后点击 `Locate` 打开产物目录
+
+### 5.2 真机联调要点
+
+- 本机 API：执行 `adb -s <deviceId> reverse tcp:8001 tcp:8001`
+- App 中 `baseUrl` 填 `http://127.0.0.1:8001`
+- `simulate` 模式使用 Web 同账号 token（不带 `Bearer ` 前缀）
+
+## 6. 技能接入说明（技能管理页）
 
 前端路径：`/skills`，点击“接入新技能”。
 
-### 4.1 药物相互作用技能
+### 6.1 药物相互作用技能
 
 建议填写：
 
@@ -80,7 +120,7 @@ docker compose -f infra/docker/docker-compose.yml up -d --build
   - `阿司匹林和华法林能一起吃吗`
   - `克拉霉素和秋水仙碱能同用吗`
 
-### 4.2 挂号技能
+### 6.2 挂号技能
 
 建议填写：
 
@@ -91,4 +131,3 @@ docker compose -f infra/docker/docker-compose.yml up -d --build
 - 触发示例：
   - `帮我查明天内科号源`
   - `我想预约神经内科`
-

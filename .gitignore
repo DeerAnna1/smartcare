@@ -29,6 +29,22 @@ yarn-error.log*
 .idea/
 .vscode/
 *.pem
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
 
 # ─── Docker ──────────────────────────────────────────────────────────────────
 web.zip
+
+# ─── Runtime data ────────────────────────────────────────────────────────────
+services/api/uploads/
+
+# ─── Android Studio / APK 产物 ───────────────────────────────────────────────
+**/local.properties
+**/.cxx/
+**/build/
+*.apk
+*.aab
+Heartbeat-AndroidNative/app/release/

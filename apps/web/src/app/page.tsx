@@ -38,7 +38,7 @@ export default function HomePage() {
               </div>
             </Link>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <Link href="/health-records" className="bg-surface-container rounded-xl p-4 flex items-center gap-3 hover:bg-surface-container-high transition-all">
               <span className="material-symbols-outlined text-tertiary">folder_shared</span>
               <span className="font-medium text-on-surface text-sm">健康档案</span>
@@ -46,6 +46,10 @@ export default function HomePage() {
             <Link href="/skills" className="bg-surface-container rounded-xl p-4 flex items-center gap-3 hover:bg-surface-container-high transition-all">
               <span className="material-symbols-outlined text-primary">extension</span>
               <span className="font-medium text-on-surface text-sm">技能管理</span>
+            </Link>
+            <Link href="/iot-simulator" className="bg-surface-container rounded-xl p-4 flex items-center gap-3 hover:bg-surface-container-high transition-all">
+              <span className="material-symbols-outlined text-error">monitor_heart</span>
+              <span className="font-medium text-on-surface text-sm">心率模拟器</span>
             </Link>
             <Link href="/records" className="bg-surface-container rounded-xl p-4 flex items-center gap-3 hover:bg-surface-container-high transition-all">
               <span className="material-symbols-outlined text-secondary">history</span>

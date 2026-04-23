@@ -7,6 +7,7 @@ const navItems = [
   { icon: "chat", label: "历史问诊", href: "/chat" },
   { icon: "hub", label: "通用执行", href: "/execution" },
   { icon: "folder_managed", label: "健康档案", href: "/health-records" },
+  { icon: "monitor_heart", label: "心率模拟", href: "/iot-simulator" },
   { icon: "auto_awesome", label: "技能管理", href: "/skills" },
 ];
 
@@ -34,6 +35,7 @@ export default function SideNavBar({
 
   const isActive = (href: string) => {
     if (href === "/chat") return pathname.startsWith("/chat");
+    if (href === "/iot-simulator") return pathname.startsWith("/iot-simulator");
     if (href === "/execution") return pathname.startsWith("/execution");
     if (href === "/health-records") return pathname.startsWith("/health-records");
     if (href === "/skills") return pathname.startsWith("/skills");

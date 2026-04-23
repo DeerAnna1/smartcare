@@ -11,6 +11,7 @@ const protectedPrefixes = [
   "/records",
   "/health-records",
   "/skills",
+  "/iot-simulator",
 ];
 
 function isProtectedPath(pathname: string) {
@@ -43,5 +44,6 @@ export const config = {
     "/records/:path*",
     "/health-records/:path*",
     "/skills/:path*",
+    "/iot-simulator/:path*",
   ],
 };
