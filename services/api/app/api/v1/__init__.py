@@ -2,11 +2,8 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth,
     consultations,
-    handoffs,
     health_events,
     iot,
-    plugins,
-    proactive,
     registration,
     records,
     reminders,
@@ -24,6 +21,3 @@ api_router.include_router(skills.router)
 api_router.include_router(upload.router)
 api_router.include_router(registration.router)
 api_router.include_router(iot.router)
-api_router.include_router(handoffs.router)
-api_router.include_router(proactive.router)
-api_router.include_router(plugins.router)
