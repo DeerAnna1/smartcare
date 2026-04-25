@@ -11,6 +11,16 @@ interface FileUploadProps {
     type: string;
     extracted_text: string;
     extraction_status: "success" | "unsupported" | "failed" | "empty";
+    report_id?: string;
+    lab_summary?: string;
+    lab_items?: Array<{
+      name: string;
+      value: string;
+      unit?: string;
+      reference_range?: string;
+      abnormal?: boolean;
+      interpretation?: string;
+    }>;
   }) => void;
   onError?: (error: string) => void;
   acceptedTypes?: string;
@@ -20,8 +30,8 @@ interface FileUploadProps {
 export default function FileUpload({
   onFileUploaded,
   onError,
-  acceptedTypes = ".pdf,.doc,.docx,.txt",
-  label = "上传文件（支持 PDF、Word、TXT）",
+  acceptedTypes = ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp",
+  label = "上传文件（支持 PDF、Word、TXT、图片）",
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
