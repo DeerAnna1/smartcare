@@ -23,10 +23,13 @@ async def get_current_user(
     return user
 
 
-async def get_current_or_default_user(
+async def get_current_user_required(
     current_user: User | None = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> User:
     if current_user is not None:
         return current_user
     raise HTTPException(status_code=401, detail="请先登录")
+
+
+# Backward-compatible alias for older imports.
+get_current_or_default_user = get_current_user_required
