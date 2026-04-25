@@ -209,6 +209,102 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+# ─── Multimodal / IoT ─────────────────────────────────────────────────────────
+
+class LabReport(Base):
+    __tablename__ = "lab_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(256), default="")
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    raw_text: Mapped[str] = mapped_column(Text, default="")
+    structured_items: Mapped[str] = mapped_column(Text, default="[]")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VitalStreamEvent(Base):
+    __tablename__ = "vital_stream_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    source: Mapped[str] = mapped_column(String(64), default="apple-watch")
+    metric: Mapped[str] = mapped_column(String(64), default="heart_rate")
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    unit: Mapped[str] = mapped_column(String(16), default="bpm")
+    measured_at: Mapped[str] = mapped_column(String(64), default="")
+    dedupe_key: Mapped[str] = mapped_column(String(128), index=True)
+    risk_level: Mapped[str] = mapped_column(String(32), default="normal")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Human Handoff ────────────────────────────────────────────────────────────
+
+class HandoffTicket(Base):
+    __tablename__ = "handoff_tickets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("consultation_sessions.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    risk_level: Mapped[str] = mapped_column(String(32), default="high")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    brief: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+# ─── Proactive Intervention ───────────────────────────────────────────────────
+
+class ProactiveRule(Base):
+    __tablename__ = "proactive_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    condition_type: Mapped[str] = mapped_column(String(64), default="chronic")
+    condition_value: Mapped[str] = mapped_column(String(64), default="")
+    city: Mapped[str] = mapped_column(String(64), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ProactiveInterventionLog(Base):
+    __tablename__ = "proactive_intervention_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    rule_id: Mapped[str] = mapped_column(ForeignKey("proactive_rules.id"), index=True)
+    trigger_type: Mapped[str] = mapped_column(String(64), default="weather")
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Plugin / OAuth ───────────────────────────────────────────────────────────
+
+class UserOAuthCredential(Base):
+    __tablename__ = "user_oauth_credentials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    access_token: Mapped[str] = mapped_column(Text, default="")
+    refresh_token: Mapped[str] = mapped_column(Text, default="")
+    expires_at: Mapped[str] = mapped_column(String(64), default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 # ─── Registration Module ───────────────────────────────────────────────────────
 
 class Hospital(Base):

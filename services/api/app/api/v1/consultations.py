@@ -9,9 +9,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.api.deps.auth import get_current_or_default_user
+from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
-from app.models.models import ConsultationSession, User, HealthEvent, SkillPackage, ToolInvocationLog
+from app.models.models import (
+    ConsultationSession,
+    AuditLog,
+    HandoffTicket,
+    HealthEvent,
+    LabReport,
+    SkillPackage,
+    ToolInvocationLog,
+    User,
+    UserOAuthCredential,
+    VitalStreamEvent,
+)
 from app.schemas.schemas import (
     CreateSessionRequest, SessionResponse,
     SendMessageRequest, SessionMessageResponse,
@@ -22,6 +33,7 @@ from app.schemas.schemas import (
 from app.orchestrators.consultation import run_consultation_turn, detect_red_flags
 from app.services.registration import RegistrationService
 from app.services.drug_interaction import query_drug_interactions, ZH_TO_EN
+from app.services.risk_guardrail import emergency_reply, evaluate_risk
 
 router = APIRouter(prefix="/consultations", tags=["健康问诊"])
 
@@ -34,6 +46,14 @@ PRODUCT_NAME_ALIASES: dict[str, str] = {
     "感冒灵颗粒": "感冒灵颗粒",
     "健胃消食片": "健胃消食片",
 }
+
+
+def _build_iot_emergency_message(vital: VitalStreamEvent) -> str:
+    return (
+        "检测到穿戴设备高风险生命体征，我已自动触发人工接管。"
+        f"当前数据：{vital.metric}={vital.value}{vital.unit}。"
+        "请立即停止剧烈活动，并尽快就医或联系急救。"
+    )
 
 
 def _extract_drug_names_from_text(text: str) -> list[str]:
@@ -339,7 +359,7 @@ async def _process_skill_invocations(
 @router.get("", response_model=list[SessionResponse])
 async def list_sessions(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """返回当前用户的历史问诊列表"""
     result = await db.execute(
@@ -381,7 +401,7 @@ async def list_sessions(
 async def create_session(
     body: CreateSessionRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     session = ConsultationSession(user_id=user.id)
     db.add(session)
@@ -398,7 +418,7 @@ async def create_session(
 async def get_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(ConsultationSession).where(
@@ -428,7 +448,7 @@ async def send_message(
     session_id: str,
     body: SendMessageRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(ConsultationSession).where(
@@ -441,13 +461,16 @@ async def send_message(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     messages: list[dict] = json.loads(session.raw_messages)
-    messages.append({"role": "user", "content": body.content})
+    user_content = body.content
 
     # 查询活跃技能注入上下文
     skill_result = await db.execute(
         select(SkillPackage).where(SkillPackage.status == "ACTIVE")
     )
     skill_rows = skill_result.scalars().all()
+    cred_result = await db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
+    connected_providers = {c.provider for c in cred_result.scalars().all()}
+
     active_skills = [
         {
             "skill_id": s.skill_id,
@@ -459,7 +482,121 @@ async def send_message(
             "tools": json.loads(s.tools or "[]"),
         }
         for s in skill_rows
+        if (
+            s.source_type != "plugin"
+            or json.loads(s.manifest_json or "{}").get("auth_type", "none") == "none"
+            or json.loads(s.manifest_json or "{}").get("provider") in connected_providers
+        )
     ]
+    # 注入 OCR 和 IoT 的最近上下文，帮助问诊推理
+    latest_report_res = await db.execute(
+        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
+    )
+    latest_report = latest_report_res.scalars().first()
+    if latest_report and latest_report.summary:
+        user_content += f"\n[最近检验摘要] {latest_report.summary}"
+
+    latest_vital_res = await db.execute(
+        select(VitalStreamEvent)
+        .where(VitalStreamEvent.user_id == user.id)
+        .order_by(VitalStreamEvent.created_at.desc())
+    )
+    latest_vital = latest_vital_res.scalars().first()
+    if latest_vital:
+        user_content += (
+            f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
+            f"risk={latest_vital.risk_level}"
+        )
+
+    messages.append({"role": "user", "content": user_content})
+
+    # 安全围栏补强：最近高风险 IoT 事件可直接触发接管（防止仅靠文本触发漏检）
+    if latest_vital and latest_vital.risk_level == "high":
+        existing_ticket = await db.execute(
+            select(HandoffTicket)
+            .where(HandoffTicket.session_id == session.id)
+            .where(HandoffTicket.status.in_(["pending", "processing"]))
+            .order_by(HandoffTicket.created_at.desc())
+        )
+        if existing_ticket.scalar_one_or_none() is None:
+            ticket = HandoffTicket(
+                user_id=user.id,
+                session_id=session.id,
+                status="pending",
+                risk_level="high",
+                reason="IoT 高风险生命体征触发人工接管",
+                brief=f"{latest_vital.metric}={latest_vital.value}{latest_vital.unit}",
+                evidence=json.dumps(
+                    [
+                        f"source={latest_vital.source}",
+                        f"metric={latest_vital.metric}",
+                        f"value={latest_vital.value}{latest_vital.unit}",
+                        f"measured_at={latest_vital.measured_at}",
+                        f"event_id={latest_vital.id}",
+                    ],
+                    ensure_ascii=False,
+                ),
+            )
+            db.add(ticket)
+            db.add(
+                AuditLog(
+                    event_type="handoff.created.iot.message",
+                    actor_id=user.id,
+                    entity_type="handoff_ticket",
+                    entity_id=ticket.id,
+                    detail=json.dumps(
+                        {"session_id": session.id, "iot_event_id": latest_vital.id},
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            session.status = "HUMAN_HANDOFF_PENDING"
+            assistant_content = _build_iot_emergency_message(latest_vital)
+            messages.append({"role": "assistant", "content": assistant_content})
+            session.raw_messages = json.dumps(messages, ensure_ascii=False)
+            await db.flush()
+            await db.commit()
+            return SessionMessageResponse(
+                status=session.status,
+                assistant_message=assistant_content,
+                structured_state={},
+                red_flag_detected=True,
+            )
+
+    # 安全围栏：高风险直接转人工并挂起
+    risk_level, risk_evidence = evaluate_risk(body.content)
+    if risk_level == "high":
+        ticket = HandoffTicket(
+            user_id=user.id,
+            session_id=session.id,
+            status="pending",
+            risk_level="high",
+            reason="命中高危语义规则，触发人工接管",
+            brief=body.content[:400],
+            evidence=json.dumps(risk_evidence, ensure_ascii=False),
+        )
+        db.add(ticket)
+        db.add(
+            AuditLog(
+                event_type="handoff.created",
+                actor_id=user.id,
+                entity_type="handoff_ticket",
+                entity_id=ticket.id,
+                detail=json.dumps({"session_id": session.id, "evidence": risk_evidence}, ensure_ascii=False),
+            )
+        )
+        session.status = "HUMAN_HANDOFF_PENDING"
+        assistant_content = emergency_reply()
+        messages.append({"role": "assistant", "content": assistant_content})
+        session.raw_messages = json.dumps(messages, ensure_ascii=False)
+        await db.flush()
+        await db.commit()
+        return SessionMessageResponse(
+            status=session.status,
+            assistant_message=assistant_content,
+            structured_state={},
+            red_flag_detected=True,
+        )
 
     # 兜底：用户明确询问两药同用时，强制触发药物相互作用技能（不依赖 LLM 是否输出 invoke）
     force_skill, extracted_drugs = _should_force_drug_skill(body.content, active_skills)
@@ -541,7 +678,7 @@ async def send_message(
 async def get_summary(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(ConsultationSession).where(
@@ -570,7 +707,7 @@ async def get_summary(
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(ConsultationSession).where(
@@ -590,7 +727,7 @@ async def generate_event_card(
     session_id: str,
     body: CreateEventCardRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(ConsultationSession).where(

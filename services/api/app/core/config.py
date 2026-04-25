@@ -22,13 +22,29 @@ class Settings(BaseSettings):
 
     # App
     ENV: str = "development"
+    AUTO_CREATE_TABLES: bool | None = None
     APP_TITLE: str = "家庭健康双工作区 Agent Platform API"
     APP_VERSION: str = "2.0.0"
     AUTH_SECRET: str = "dev-auth-secret-change-me"
+    WEBHOOK_SECRET: str = "dev-webhook-secret-change-me"
+    OCR_PROVIDER: str = "builtin"
+    OCR_API_KEY: str = ""
+    WEATHER_API_BASE: str = "https://api.open-meteo.com/v1/forecast"
+    WEATHER_API_KEY: str = ""
+    DEFAULT_USER_CITY: str = "beijing"
+    PROACTIVE_JOB_ENABLED: bool = False
+    IOT_WEBHOOK_HMAC_SECRET: str = "dev-iot-hmac-secret-change-me"
+    IOT_WEBHOOK_MAX_SKEW_SECONDS: int = 300
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]
+
+    @property
+    def should_auto_create_tables(self) -> bool:
+        if self.AUTO_CREATE_TABLES is not None:
+            return self.AUTO_CREATE_TABLES
+        return self.ENV == "development"
 
 
 @lru_cache

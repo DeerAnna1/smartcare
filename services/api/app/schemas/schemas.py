@@ -284,3 +284,82 @@ class InvokeSkillResponse(BaseModel):
     result: dict | None = None
     error: str | None = None
     trace_id: str = ""
+
+
+# ─── Multimodal / IoT ─────────────────────────────────────────────────────────
+
+class LabItem(BaseModel):
+    name: str
+    value: str
+    unit: str = ""
+    reference_range: str = ""
+    abnormal: bool = False
+    interpretation: str = ""
+
+
+class LabReportParseResponse(BaseModel):
+    report_id: str
+    filename: str
+    summary: str
+    items: list[LabItem]
+
+
+class IoTWebhookRequest(BaseModel):
+    source: str = "apple-watch"
+    user_id: str | None = None
+    metric: str = "heart_rate"
+    value: float
+    unit: str = "bpm"
+    measured_at: str
+    event_id: str = ""
+
+
+# ─── Human Handoff ────────────────────────────────────────────────────────────
+
+class HandoffTicketResponse(BaseModel):
+    id: str
+    session_id: str
+    status: str
+    risk_level: str
+    reason: str
+    brief: str
+    evidence: list[str] = []
+    created_at: datetime
+
+
+class UpdateHandoffStatusRequest(BaseModel):
+    status: Literal["pending", "processing", "resolved"]
+
+
+# ─── Proactive Intervention ───────────────────────────────────────────────────
+
+class CreateProactiveRuleRequest(BaseModel):
+    condition_type: str = "chronic"
+    condition_value: str
+    city: str
+    enabled: bool = True
+
+
+class ProactiveRuleResponse(BaseModel):
+    id: str
+    condition_type: str
+    condition_value: str
+    city: str
+    enabled: bool
+    created_at: datetime
+
+
+# ─── Plugin/OAuth ─────────────────────────────────────────────────────────────
+
+class PluginManifestRequest(BaseModel):
+    provider: str
+    auth_type: Literal["none", "oauth2"] = "none"
+    manifest: dict = {}
+
+
+class OAuthConnectRequest(BaseModel):
+    provider: str
+    access_token: str
+    refresh_token: str = ""
+    expires_at: str = ""
+    metadata: dict = {}

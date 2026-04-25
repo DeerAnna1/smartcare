@@ -28,8 +28,13 @@ export default function ChatPage({ params }: ChatPageProps) {
   const [hasRedFlags, setHasRedFlags] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [showVoiceInput, setShowVoiceInput] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<string>("");
+  const [latestVitalHint, setLatestVitalHint] = useState<string>("");
+  const [liveRiskLevel, setLiveRiskLevel] = useState<"normal" | "medium" | "high" | null>(null);
+  const [iotHandoffDetected, setIotHandoffDetected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isStreamingRef = useRef(false);
 
   // 加载历史消息，并处理从 /chat/new 跳转时携带的第一条待发消息
   useEffect(() => {
@@ -42,6 +47,7 @@ export default function ChatPage({ params }: ChatPageProps) {
     };
 
     api.getSession(sessionId).then((data) => {
+      setSessionStatus(data.status);
       if (data.messages.length === 0) {
         setMessages([welcomeMsg]);
       } else {
@@ -57,8 +63,99 @@ export default function ChatPage({ params }: ChatPageProps) {
       setMessages([welcomeMsg]);
       if (pending) setTimeout(() => sendMessageWithText(pending), 0);
     });
+
+    api.getLatestVitals()
+      .then((items) => {
+        if (!Array.isArray(items) || items.length === 0) return;
+        const latest = items[0];
+        if (latest?.risk_level === "high") {
+          setLatestVitalHint(
+            `${latest.metric}=${latest.value}${latest.unit}（${latest.source}，${latest.measured_at}）`
+          );
+        }
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  /** 轮询：手机 Heartbeat 推送后，后端会写入会话消息与状态，此处无需用户再发一条即可同步 UI */
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const fresh = await api.getSession(sessionId);
+        if (cancelled) return;
+        setSessionStatus(fresh.status);
+        if (fresh.red_flag_detected) setHasRedFlags(true);
+        if (fresh.status === "HUMAN_HANDOFF_PENDING") setIotHandoffDetected(true);
+
+        if (!isStreamingRef.current) {
+          const serverMsgs = fresh.messages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          }));
+          setMessages((prev) => {
+            if (serverMsgs.length === 0) return prev;
+            const withoutThinking = prev.filter((p) => !p.isThinking);
+            const same =
+              withoutThinking.length === serverMsgs.length &&
+              withoutThinking.every(
+                (p, i) => p.role === serverMsgs[i]?.role && p.content === serverMsgs[i]?.content
+              );
+            if (same) return prev;
+            return serverMsgs;
+          });
+        }
+      } catch {
+        // 轮询失败不打扰用户
+      }
+
+      try {
+        const items = await api.getLatestVitals();
+        if (cancelled || !Array.isArray(items) || items.length === 0) return;
+        const latest = items[0] as {
+          metric?: string;
+          value?: number;
+          unit?: string;
+          source?: string;
+          measured_at?: string;
+          risk_level?: string;
+        };
+        const rl = latest?.risk_level;
+        if (rl === "high") {
+          setLiveRiskLevel("high");
+          setLatestVitalHint(
+            `${latest.metric}=${latest.value}${latest.unit}（${latest.source ?? "device"}，${latest.measured_at ?? ""}）`
+          );
+        } else if (rl === "medium") {
+          setLiveRiskLevel("medium");
+          setLatestVitalHint(
+            `${latest.metric}=${latest.value}${latest.unit}（${latest.source ?? "device"}，${latest.measured_at ?? ""}）`
+          );
+        } else {
+          setLiveRiskLevel("normal");
+          setLatestVitalHint("");
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    const id = setInterval(() => void poll(), 2500);
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const sendMessageWithText = async (userMessage: string) => {
     if (isStreaming) return;
@@ -70,12 +167,27 @@ export default function ChatPage({ params }: ChatPageProps) {
     setIsStreaming(true);
     try {
       const data = await api.sendMessage(sessionId, userMessage);
+      setSessionStatus(data.status);
+      if (
+        data.status === "HUMAN_HANDOFF_PENDING" ||
+        data.assistant_message.includes("自动触发人工接管") ||
+        data.assistant_message.includes("高风险生命体征")
+      ) {
+        setIotHandoffDetected(true);
+      }
       if (data.red_flag_detected) setHasRedFlags(true);
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = { role: "assistant", content: data.assistant_message, isThinking: false };
         return updated;
       });
+      // 双保险：发送后再拉一次会话状态，避免前端状态不同步导致红条不展示
+      try {
+        const fresh = await api.getSession(sessionId);
+        setSessionStatus(fresh.status);
+      } catch {
+        // ignore
+      }
     } catch (error: unknown) {
       const msg = error instanceof Error && error.message.includes("504")
         ? "AI 响应超时，请稍后重试。"
@@ -171,6 +283,35 @@ export default function ChatPage({ params }: ChatPageProps) {
           <span className="text-xs font-medium text-secondary">系统已就绪</span>
         </div>
       </div>
+
+      {liveRiskLevel === "medium" &&
+        sessionStatus !== "HUMAN_HANDOFF_PENDING" &&
+        !iotHandoffDetected &&
+        latestVitalHint && (
+          <div className="mx-8 mb-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-amber-950">
+            <div className="flex items-start gap-2">
+              <span className="material-symbols-outlined text-[18px] text-amber-700">monitor_heart</span>
+              <div className="text-sm">
+                <p className="font-semibold text-amber-900">监测到生命体征偏高（中风险）</p>
+                <p className="text-xs opacity-90 mt-0.5">最近上报：{latestVitalHint}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {(sessionStatus === "HUMAN_HANDOFF_PENDING" || iotHandoffDetected) && (
+        <div className="mx-8 mb-2 rounded-xl border border-error/30 bg-error/10 px-4 py-3">
+          <div className="flex items-start gap-2 text-error">
+            <span className="material-symbols-outlined text-[18px]">emergency</span>
+            <div className="text-sm">
+              <p className="font-semibold">IoT 高风险接管中</p>
+              <p className="text-xs opacity-90">
+                系统已触发人工接管，请优先线下就医。{latestVitalHint ? `最近风险指标：${latestVitalHint}` : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 聊天区域 */}
       <div className="flex-1 overflow-y-auto px-8 pb-52 space-y-8 max-w-4xl mx-auto w-full pt-4 no-scrollbar">
@@ -271,6 +412,9 @@ export default function ChatPage({ params }: ChatPageProps) {
                     if (result.extraction_status === "success" && result.extracted_text.trim()) {
                       lines.push("\n以下是上传文档中提取的内容，请结合这些信息继续问诊分析：");
                       lines.push(result.extracted_text.trim());
+                      if (result.lab_summary) {
+                        lines.push(`\n化验单结构化摘要：${result.lab_summary}`);
+                      }
                     } else if (result.extraction_status === "empty") {
                       lines.push("\n提示：文件上传成功，但未提取到可读文本。请手动补充关键信息。");
                     } else if (result.extraction_status === "unsupported") {
