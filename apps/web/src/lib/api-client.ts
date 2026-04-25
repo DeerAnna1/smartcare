@@ -328,6 +328,16 @@ export const api = {
     type: string;
     extracted_text: string;
     extraction_status: "success" | "unsupported" | "failed" | "empty";
+    report_id?: string;
+    lab_summary?: string;
+    lab_items?: Array<{
+      name: string;
+      value: string;
+      unit?: string;
+      reference_range?: string;
+      abnormal?: boolean;
+      interpretation?: string;
+    }>;
   }> {
     const form = new FormData();
     form.append("file", file);
@@ -343,6 +353,71 @@ export const api = {
       ...data,
       url: toAbsoluteMediaUrl(data.url || ""),
     };
+  },
+
+  /** IoT 近期生命体征 */
+  async getLatestVitals() {
+    const res = await fetch(`${API_BASE}/api/v1/iot/latest`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取生命体征失败");
+    return res.json();
+  },
+
+  /** IoT 模拟推送（开发联调） */
+  async simulateVitalPush(body: {
+    source?: string;
+    metric?: string;
+    value: number;
+    unit?: string;
+    measured_at: string;
+    event_id?: string;
+  }) {
+    const res = await fetch(`${API_BASE}/api/v1/iot/simulate`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        source: body.source ?? "xiaomi-health",
+        metric: body.metric ?? "heart_rate",
+        value: body.value,
+        unit: body.unit ?? "bpm",
+        measured_at: body.measured_at,
+        event_id: body.event_id ?? "",
+      }),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "IoT 模拟推送失败"));
+    return res.json();
+  },
+
+  /** 人工接管工单 */
+  async listHandoffs() {
+    const res = await fetch(`${API_BASE}/api/v1/handoffs`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取接管工单失败");
+    return res.json();
+  },
+
+  /** 创建主动干预规则 */
+  async createProactiveRule(body: { condition_value: string; city: string; condition_type?: string; enabled?: boolean }) {
+    const res = await fetch(`${API_BASE}/api/v1/proactive/rules`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "创建主动规则失败"));
+    return res.json();
+  },
+
+  /** 触发一次主动扫描 */
+  async runProactiveScan() {
+    const res = await fetch(`${API_BASE}/api/v1/proactive/run`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "执行主动扫描失败"));
+    return res.json();
   },
 
   /** 上传头像 */
