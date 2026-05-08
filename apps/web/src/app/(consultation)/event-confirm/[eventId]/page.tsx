@@ -48,7 +48,8 @@ export default function EventConfirmPage() {
         alert("确认失败，请重试");
       }
     } catch (e) {
-      alert("确认失败，请重试");
+      const msg = e instanceof Error ? e.message : "未知错误";
+      alert(`确认失败：${msg}`);
     } finally {
       setConfirming(false);
     }

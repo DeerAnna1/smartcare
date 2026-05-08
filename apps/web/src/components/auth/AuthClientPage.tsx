@@ -69,7 +69,7 @@ export default function AuthClientPage({ initialMode }: AuthClientPageProps) {
         <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-outline-variant/15 bg-white/80 shadow-[0_32px_120px_rgba(77,57,32,0.14)] backdrop-blur md:grid-cols-[1.05fr_0.95fr]">
           <section className="flex flex-col justify-between bg-[linear-gradient(160deg,rgba(74,107,87,0.96),rgba(42,63,53,0.96))] p-10 text-white md:p-12">
             <div>
-              <p className="text-sm uppercase tracking-[0.35em] text-white/70">Med Help Agent</p>
+              <p className="text-sm uppercase tracking-[0.35em] text-white/70">智愈健康助手</p>
               <h1 className="mt-6 max-w-md font-headline text-4xl font-extrabold tracking-tight md:text-5xl">
                 家庭健康问诊与执行工作区
               </h1>
@@ -92,7 +92,7 @@ export default function AuthClientPage({ initialMode }: AuthClientPageProps) {
           <section className="p-8 md:p-12">
             <div className="mb-8 flex items-center justify-between">
               <div>
-                <p className="text-sm uppercase tracking-[0.28em] text-on-surface-variant/70">Account</p>
+                <p className="text-sm uppercase tracking-[0.28em] text-on-surface-variant/70">账户管理</p>
                 <h2 className="mt-3 font-headline text-3xl font-extrabold tracking-tight text-on-surface">
                   {title}
                 </h2>

@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.models import SkillPackage, ToolInvocationLog
+from app.api.deps.auth import get_current_user_required
+from app.models.models import SkillPackage, ToolInvocationLog, User, UserOAuthCredential
 from app.schemas.schemas import (
     CreateSkillRequest, SkillResponse,
     InvokeSkillRequest, InvokeSkillResponse,
@@ -88,6 +89,7 @@ async def invoke_skill(
     skill_id: str,
     body: InvokeSkillRequest,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_required),
 ):
     """Skill Runtime §10.4 路由顺序执行"""
     result = await db.execute(
@@ -99,6 +101,20 @@ async def invoke_skill(
 
     if skill.status != "ACTIVE":
         raise HTTPException(status_code=400, detail=f"Skill 状态为 {skill.status}，不可调用")
+
+    # 第三方插件 OAuth 检查
+    manifest = json.loads(skill.manifest_json or "{}")
+    provider = manifest.get("provider")
+    auth_type = manifest.get("auth_type", "none")
+    if skill.source_type == "plugin" and auth_type == "oauth2" and provider:
+        cred_res = await db.execute(
+            select(UserOAuthCredential).where(
+                UserOAuthCredential.user_id == user.id,
+                UserOAuthCredential.provider == provider,
+            )
+        )
+        if cred_res.scalar_one_or_none() is None:
+            raise HTTPException(status_code=403, detail=f"插件 {provider} 需要先完成 OAuth 授权")
 
     # confirm_required 检查
     if skill.confirm_required and not body.input.get("confirmed"):

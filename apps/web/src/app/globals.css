@@ -68,11 +68,56 @@
   --color-inverse-on-surface: #eff1f3;
 }
 
+/* ===== Dark Theme ===== */
+[data-theme="dark"] {
+  --color-primary: #b8c3ff;
+  --color-primary-container: #002e99;
+  --color-on-primary: #00207a;
+  --color-on-primary-container: #efefff;
+  --color-surface-tint: #b8c3ff;
+  --color-inverse-primary: #0040e0;
+
+  --color-secondary: #5ddacb;
+  --color-secondary-container: #004f47;
+  --color-on-secondary: #003733;
+  --color-on-secondary-container: #7cf6e7;
+
+  --color-tertiary: #ffba20;
+  --color-tertiary-container: #5e4200;
+  --color-on-tertiary: #3c2f00;
+  --color-on-tertiary-container: #ffdea8;
+
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+  --color-on-error-container: #ffdad6;
+
+  --color-surface: #111418;
+  --color-surface-dim: #111418;
+  --color-surface-bright: #37393e;
+  --color-surface-container-lowest: #0c0e13;
+  --color-surface-container-low: #191c1e;
+  --color-surface-container: #1d2024;
+  --color-surface-container-high: #282a2f;
+  --color-surface-container-highest: #33353a;
+  --color-surface-variant: #434656;
+  --color-on-surface: #e2e3e8;
+  --color-on-surface-variant: #c3c6d6;
+  --color-on-background: #e2e3e8;
+  --color-background: #111418;
+
+  --color-outline: #8d90a1;
+  --color-outline-variant: #434656;
+  --color-inverse-surface: #e2e3e8;
+  --color-inverse-on-surface: #2d3133;
+}
+
 /* ===== 全局基础样式 ===== */
 body {
-  background-color: #f7f9fb;
-  color: #191c1e;
+  background-color: var(--color-background, #f7f9fb);
+  color: var(--color-on-background, #191c1e);
   font-family: 'Inter', 'Microsoft YaHei', sans-serif;
+  transition: background-color 0.3s, color 0.3s;
 }
 
 /* Material Symbols 变量字体设置 */
@@ -85,6 +130,9 @@ body {
   background: rgba(247, 249, 251, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+}
+[data-theme="dark"] .glass-panel {
+  background: rgba(29, 32, 36, 0.7);
 }
 
 /* 隐藏滚动条（保留功能） */

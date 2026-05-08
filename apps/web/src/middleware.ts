@@ -22,28 +22,27 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!isProtectedPath(pathname)) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("x-middleware-ran", "true");
+    return response;
   }
 
   const token = request.cookies.get(AUTH_COOKIE_KEY)?.value;
   if (token) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("x-middleware-ran", "true");
+    return response;
   }
 
   const loginUrl = new URL("/auth", request.url);
   loginUrl.searchParams.set("redirect", pathname);
-  return NextResponse.redirect(loginUrl);
+  const response = NextResponse.redirect(loginUrl);
+  response.headers.set("x-middleware-ran", "true");
+  return response;
 }
 
 export const config = {
   matcher: [
-    "/chat/:path*",
-    "/conclusion/:path*",
-    "/event-confirm/:path*",
-    "/execution/:path*",
-    "/records/:path*",
-    "/health-records/:path*",
-    "/skills/:path*",
-    "/iot-simulator/:path*",
+    "/((?!api|_next|_static|favicon\\.ico|fonts|icons).*)",
   ],
 };

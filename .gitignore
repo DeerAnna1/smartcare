@@ -37,6 +37,7 @@ yarn-error.log*
 
 # ─── Docker ──────────────────────────────────────────────────────────────────
 web.zip
+Heartbeat.zip
 
 # ─── Runtime data ────────────────────────────────────────────────────────────
 services/api/uploads/
@@ -48,3 +49,5 @@ services/api/uploads/
 *.apk
 *.aab
 Heartbeat-AndroidNative/app/release/
+
+prd.md

@@ -1,0 +1,188 @@
+[
+  {
+    "id": "common_cold_01",
+    "name": "普通感冒问诊",
+    "description": "用户描述普通感冒症状，期望分诊到门诊",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我昨天开始流鼻涕、打喷嚏，喉咙有点痛，不发烧。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "症状从前天晚上开始的，大概两天了。鼻子堵得厉害，还有点头疼。"}
+    ],
+    "expected": {
+      "triage_level": "outpatient",
+      "department_keywords": ["呼吸", "内科", "耳鼻喉"],
+      "red_flag": false,
+      "has_symptoms": true,
+      "min_symptom_count": 2
+    }
+  },
+  {
+    "id": "chest_pain_emergency",
+    "name": "胸痛高风险",
+    "description": "用户描述胸痛症状，应触发高风险警报",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我胸口突然很痛，呼吸困难，左肩也放射性疼痛。"}
+    ],
+    "expected": {
+      "triage_level": "emergency",
+      "red_flag": true,
+      "contains_urgency_keywords": ["急诊", "立即", "就医"]
+    }
+  },
+  {
+    "id": "hypertension_consultation",
+    "name": "高血压咨询",
+    "description": "用户咨询高血压相关问题",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我最近血压一直偏高，高压150，低压95，头有点晕。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "已经持续一周了，之前没有高血压病史，但是家族有遗传。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "没有吃药，平时工作压力比较大，经常熬夜。"}
+    ],
+    "expected": {
+      "triage_level": "outpatient",
+      "department_keywords": ["心内", "内科"],
+      "red_flag": false,
+      "has_symptoms": true
+    }
+  },
+  {
+    "id": "drug_interaction_query",
+    "name": "药物相互作用查询",
+    "description": "用户询问两种药物能否同服",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我在吃阿司匹林和布洛芬，这两个药可以一起吃吗？"}
+    ],
+    "expected": {
+      "tool_called": "check_drug_interaction",
+      "red_flag": false
+    }
+  },
+  {
+    "id": "high_fever_child",
+    "name": "儿童高热",
+    "description": "儿童高热39.5度以上，应触发中高风险",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我家小孩3岁，昨天晚上开始发烧，现在体温39.8度，精神不太好。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "从昨晚开始的，吃了退烧药但是又烧上来了。没有咳嗽，但是有点流鼻涕。"}
+    ],
+    "expected": {
+      "triage_level": "urgent_visit",
+      "red_flag": true,
+      "department_keywords": ["儿科", "小儿"]
+    }
+  },
+  {
+    "id": "mild_headache",
+    "name": "轻微头痛",
+    "description": "普通头痛，无需急诊",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "今天下午开始有点头疼，不是很严重，可能是工作太累了。"}
+    ],
+    "expected": {
+      "triage_level": "observe",
+      "red_flag": false
+    }
+  },
+  {
+    "id": "depression_screening",
+    "name": "情绪低落筛查",
+    "description": "用户表达情绪低落，应识别中等风险",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "最近心情一直很低落，对什么都提不起兴趣，晚上也睡不好。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "持续了大概两周了，工作也集中不了注意力，有时候会想哭。"}
+    ],
+    "expected": {
+      "department_keywords": ["心理", "精神"],
+      "red_flag": false,
+      "has_symptoms": true
+    }
+  },
+  {
+    "id": "english_consultation",
+    "name": "英文问诊",
+    "description": "English language consultation test",
+    "lang": "en",
+    "turns": [
+      {"role": "user", "content": "I've had a persistent cough for the past week, and I'm coughing up yellow phlegm. No fever though."}
+    ],
+    "expected": {
+      "triage_level": "outpatient",
+      "red_flag": false,
+      "has_symptoms": true,
+      "response_language": "en"
+    }
+  },
+  {
+    "id": "diabetes_followup",
+    "name": "糖尿病随访",
+    "description": "糖尿病患者血糖控制问题",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我是2型糖尿病患者，最近血糖控制不太好，空腹血糖经常在8-9左右。"},
+      {"role": "assistant", "content": ""},
+      {"role": "user", "content": "目前在吃二甲双胍，每天两次。饮食上有时候控制不住，运动也比较少。"}
+    ],
+    "expected": {
+      "triage_level": "outpatient",
+      "department_keywords": ["内分泌", "内科"],
+      "red_flag": false,
+      "has_symptoms": true
+    }
+  },
+  {
+    "id": "allergy_reaction",
+    "name": "过敏反应",
+    "description": "药物过敏反应，应识别风险",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我刚吃了头孢，现在全身起红疹，呼吸有点困难。"}
+    ],
+    "expected": {
+      "triage_level": "emergency",
+      "red_flag": true,
+      "contains_urgency_keywords": ["急诊", "立即", "就医"]
+    }
+  },
+  {
+    "id": "multi_turn_summary",
+    "name": "多轮问诊总结",
+    "description": "4轮以上问诊后应生成结构化总结",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我最近肚子疼，尤其是吃完饭以后。"},
+      {"role": "assistant", "content": "请问腹痛的具体位置在哪里？是上腹还是下腹？"},
+      {"role": "user", "content": "主要是上腹部，有时候会反酸。"},
+      {"role": "assistant", "content": "这种情况持续多久了？有没有恶心呕吐的症状？"},
+      {"role": "user", "content": "大概两周了，偶尔会恶心，没有呕吐。大便颜色正常。"}
+    ],
+    "expected": {
+      "has_summary_json": true,
+      "summary_fields": ["chief_complaint", "symptom_summary", "triage_level"],
+      "red_flag": false
+    }
+  },
+  {
+    "id": "iot_high_heart_rate",
+    "name": "IoT高心率触发",
+    "description": "IoT设备检测到高心率，应识别风险",
+    "lang": "zh",
+    "turns": [
+      {"role": "user", "content": "我的智能手表显示心率一直在120以上，静息状态下也是这样。"}
+    ],
+    "expected": {
+      "red_flag": true,
+      "department_keywords": ["心内", "内科"]
+    }
+  }
+]

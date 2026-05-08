@@ -38,6 +38,30 @@ class HealthEventCardSchema(BaseModel):
     insurance_material_suggestion: list[str] = []
     source_session_id: str  # required per PRD §8.3
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_none_to_defaults(cls, data: dict) -> dict:
+        """LLM may output null for string/array fields; coerce to schema defaults."""
+        if not isinstance(data, dict):
+            return data
+        field_info = cls.model_fields
+        for key, value in list(data.items()):
+            if value is None and key in field_info:
+                field = field_info[key]
+                # Use field default if available, else type-appropriate empty value
+                if field.default is not None and field.default is not ...:
+                    data[key] = field.default
+                elif isinstance(field.annotation, type):
+                    if issubclass(field.annotation, str):
+                        data[key] = ""
+                    elif issubclass(field.annotation, list):
+                        data[key] = []
+                    elif issubclass(field.annotation, bool):
+                        data[key] = False
+                else:
+                    data[key] = ""
+        return data
+
 
 # ─── 会话 ─────────────────────────────────────────────────────────────────────
 
@@ -71,6 +95,7 @@ class SessionDetailResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     role: Literal["user"] = "user"
     content: str
+    lang: str | None = None
 
 
 class SessionMessageResponse(BaseModel):

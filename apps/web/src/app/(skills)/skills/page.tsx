@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface Skill {
   id: string;
@@ -35,10 +36,16 @@ interface InvokeResult {
   trace_id?: string;
 }
 
-const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
+const statusConfigZh: Record<string, { label: string; color: string; dot: string }> = {
   ACTIVE: { label: "运行中", color: "text-secondary bg-secondary-container/40", dot: "bg-secondary" },
   DISABLED: { label: "已禁用", color: "text-error bg-error-container/30", dot: "bg-error" },
   ERROR: { label: "异常", color: "text-error bg-error-container/30", dot: "bg-error" },
+};
+
+const statusConfigEn: Record<string, { label: string; color: string; dot: string }> = {
+  ACTIVE: { label: "Active", color: "text-secondary bg-secondary-container/40", dot: "bg-secondary" },
+  DISABLED: { label: "Disabled", color: "text-error bg-error-container/30", dot: "bg-error" },
+  ERROR: { label: "Error", color: "text-error bg-error-container/30", dot: "bg-error" },
 };
 
 const defaultFormState = {
@@ -54,6 +61,9 @@ const defaultFormState = {
 };
 
 export default function SkillsPage() {
+  const { lang } = useLang();
+  const t = (zh: string, en: string) => lang === "zh" ? zh : en;
+  const statusConfig = lang === "zh" ? statusConfigZh : statusConfigEn;
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -80,7 +90,7 @@ export default function SkillsPage() {
       const data = await api.listSkills();
       setSkills(data as Skill[]);
     } catch {
-      setError("加载技能列表失败，请检查网络连接");
+      setError(t("加载技能列表失败，请检查网络连接", "Failed to load skills list, please check network"));
     } finally {
       setLoading(false);
     }
@@ -90,7 +100,7 @@ export default function SkillsPage() {
 
   const handleCreate = async () => {
     if (!form.skill_id.trim() || !form.name.trim()) {
-      setCreateError("skill_id 和名称为必填项");
+      setCreateError(t("skill_id 和名称为必填项", "skill_id and name are required"));
       return;
     }
     setCreating(true);
@@ -113,7 +123,7 @@ export default function SkillsPage() {
       setForm(defaultFormState);
       void loadSkills();
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "注册失败");
+      setCreateError(e instanceof Error ? e.message : t("注册失败", "Registration failed"));
     } finally {
       setCreating(false);
     }
@@ -124,29 +134,29 @@ export default function SkillsPage() {
     try {
       await api.updateSkillStatus(skill.skill_id, next);
       setSkills((prev) => prev.map((s) => s.skill_id === skill.skill_id ? { ...s, status: next } : s));
-    } catch { alert("更新状态失败"); }
+    } catch { alert(t("更新状态失败", "Failed to update status")); }
   };
 
   const handleDelete = async (skill: Skill) => {
-    if (!confirm(`确认删除技能「${skill.name}」？此操作不可撤销。`)) return;
+    if (!confirm(t(`确认删除技能「${skill.name}」？此操作不可撤销。`, `Delete skill "${skill.name}"? This cannot be undone.`))) return;
     try {
       await api.deleteSkill(skill.skill_id);
       setSkills((prev) => prev.filter((s) => s.skill_id !== skill.skill_id));
-    } catch { alert("删除失败"); }
+    } catch { alert(t("删除失败", "Delete failed")); }
   };
 
   const handleInvoke = async () => {
     if (!showInvokeModal) return;
     let parsed: Record<string, unknown>;
     try { parsed = JSON.parse(invokeInput) as Record<string, unknown>; }
-    catch { alert("输入参数必须是合法 JSON"); return; }
+    catch { alert(t("输入参数必须是合法 JSON", "Input must be valid JSON")); return; }
     setInvoking(true);
     setInvokeResult(null);
     try {
       const result = await api.invokeSkill(showInvokeModal.skill_id, parsed);
       setInvokeResult(result as InvokeResult);
     } catch (e) {
-      setInvokeResult({ skill_id: showInvokeModal.skill_id, status: "failed", error: e instanceof Error ? e.message : "调用失败" });
+      setInvokeResult({ skill_id: showInvokeModal.skill_id, status: "failed", error: e instanceof Error ? e.message : t("调用失败", "Invocation failed") });
     } finally { setInvoking(false); }
   };
 
@@ -169,14 +179,14 @@ export default function SkillsPage() {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`确认删除选中的 ${selectedIds.size} 个技能？此操作不可撤销。`)) return;
+    if (!confirm(t(`确认删除选中的 ${selectedIds.size} 个技能？此操作不可撤销。`, `Delete ${selectedIds.size} selected skills? This cannot be undone.`))) return;
     setBatchDeleting(true);
     try {
       await Promise.all([...selectedIds].map((id) => api.deleteSkill(id)));
       setSkills((prev) => prev.filter((s) => !selectedIds.has(s.skill_id)));
       setSelectedIds(new Set());
     } catch {
-      alert("部分删除失败，请重试");
+      alert(t("部分删除失败，请重试", "Some deletions failed, please retry"));
     } finally {
       setBatchDeleting(false);
     }
@@ -190,11 +200,11 @@ export default function SkillsPage() {
       {/* 页头 */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="font-headline font-bold text-3xl text-on-surface">技能管理</h1>
+          <h1 className="font-headline font-bold text-3xl text-on-surface">{t("技能管理", "Skills Management")}</h1>
           <p className="text-on-surface-variant text-sm mt-1">
-            管理 Agent 技能包，支持手动注册与 MCP 接入。
+            {t("管理 Agent 技能包，支持手动注册与 MCP 接入。", "Manage Agent skill packs, support manual registration and MCP integration.")}
             {!loading && (
-              <span className="ml-2 text-secondary font-medium">已激活 {activeCount} / {skills.length} 项</span>
+              <span className="ml-2 text-secondary font-medium">{t("已激活", "Active")} {activeCount} / {skills.length} {t("项", "")}</span>
             )}
           </p>
         </div>
@@ -203,7 +213,7 @@ export default function SkillsPage() {
           className="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold flex items-center gap-2 hover:opacity-90 transition-all"
         >
           <span className="material-symbols-outlined text-[18px]">add</span>
-          接入新技能
+          {t("接入新技能", "Add New Skill")}
         </button>
       </div>
 
@@ -211,34 +221,34 @@ export default function SkillsPage() {
       {loading ? (
         <div className="flex items-center justify-center py-24 text-on-surface-variant">
           <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
-          加载中...
+          {t("加载中...", "Loading...")}
         </div>
       ) : error ? (
         <div className="text-center py-24">
           <span className="material-symbols-outlined text-error text-[48px] block mb-3">error</span>
           <p className="text-error font-medium">{error}</p>
-          <button onClick={() => void loadSkills()} className="mt-4 px-5 py-2 bg-primary text-on-primary rounded-xl text-sm font-semibold">重试</button>
+          <button onClick={() => void loadSkills()} className="mt-4 px-5 py-2 bg-primary text-on-primary rounded-xl text-sm font-semibold">{t("重试", "Retry")}</button>
         </div>
       ) : skills.length === 0 ? (
         <div className="text-center py-24 bg-surface-container-lowest rounded-2xl border border-outline-variant/10">
           <span className="material-symbols-outlined text-on-surface-variant text-[48px] block mb-3">extension</span>
-          <p className="font-semibold text-on-surface">暂无技能</p>
-          <p className="text-sm text-on-surface-variant mt-1 mb-4">点击「接入新技能」注册第一个 Agent 技能包</p>
-          <button onClick={() => setShowCreateModal(true)} className="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-sm">接入新技能</button>
+          <p className="font-semibold text-on-surface">{t("暂无技能", "No Skills")}</p>
+          <p className="text-sm text-on-surface-variant mt-1 mb-4">{t("点击「接入新技能」注册第一个 Agent 技能包", "Click 'Add New Skill' to register your first Agent skill pack")}</p>
+          <button onClick={() => setShowCreateModal(true)} className="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-sm">{t("接入新技能", "Add New Skill")}</button>
         </div>
       ) : (
         <>
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-error-container/20 border border-error/20 rounded-xl">
-              <span className="text-sm font-semibold text-error flex-1">已选 {selectedIds.size} 个</span>
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">取消选择</button>
+              <span className="text-sm font-semibold text-error flex-1">{t("已选", "Selected")} {selectedIds.size} {t("个", "")}</span>
+              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">{t("取消选择", "Deselect")}</button>
               <button
                 onClick={() => void handleBatchDelete()}
                 disabled={batchDeleting}
                 className="px-3 py-1.5 bg-error text-on-error rounded-xl text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-[14px]">delete_sweep</span>
-                {batchDeleting ? "删除中..." : `删除 ${selectedIds.size} 个`}
+                {batchDeleting ? t("删除中...", "Deleting...") : t(`删除 ${selectedIds.size} 个`, `Delete ${selectedIds.size}`)}
               </button>
             </div>
           )}
@@ -256,7 +266,7 @@ export default function SkillsPage() {
                 }}
                 className="rounded"
               />
-              全选当前页
+              {t("全选当前页", "Select all on page")}
             </label>
           </div>
           <div className="space-y-3">
@@ -278,7 +288,7 @@ export default function SkillsPage() {
                     <span className="font-headline font-bold text-on-surface">{skill.name}</span>
                     <span className="text-xs text-on-surface-variant font-mono bg-surface-container px-2 py-0.5 rounded-full">{skill.skill_id}</span>
                     <span className="text-xs text-on-surface-variant">v{skill.version}</span>
-                    {skill.confirm_required && <span className="text-xs bg-tertiary-container/50 text-tertiary px-2 py-0.5 rounded-full">需确认</span>}
+                    {skill.confirm_required && <span className="text-xs bg-tertiary-container/50 text-tertiary px-2 py-0.5 rounded-full">{t("需确认", "Confirm Required")}</span>}
                   </div>
                   <p className="text-sm text-on-surface-variant mt-0.5 truncate">{skill.description}</p>
                   {skill.keywords.length > 0 && (
@@ -294,16 +304,16 @@ export default function SkillsPage() {
                     <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                     {sc.label}
                   </span>
-                  <button onClick={() => void handleShowLogs(skill)} title="调用日志" className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
+                  <button onClick={() => void handleShowLogs(skill)} title={t("调用日志", "Invocation Logs")} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
                     <span className="material-symbols-outlined text-[18px]">receipt_long</span>
                   </button>
-                  <button onClick={() => { setShowInvokeModal(skill); setInvokeInput("{}"); setInvokeResult(null); }} title="调用" className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
+                  <button onClick={() => { setShowInvokeModal(skill); setInvokeInput("{}"); setInvokeResult(null); }} title={t("调用", "Invoke")} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
                     <span className="material-symbols-outlined text-[18px]">play_circle</span>
                   </button>
-                  <button onClick={() => void handleToggleStatus(skill)} title={skill.status === "ACTIVE" ? "禁用" : "启用"} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
+                  <button onClick={() => void handleToggleStatus(skill)} title={skill.status === "ACTIVE" ? t("禁用", "Disable") : t("启用", "Enable")} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-xl transition-all">
                     <span className="material-symbols-outlined text-[18px]">{skill.status === "ACTIVE" ? "toggle_on" : "toggle_off"}</span>
                   </button>
-                  <button onClick={() => void handleDelete(skill)} title="删除" className="p-2 text-error hover:bg-error-container/20 rounded-xl transition-all">
+                  <button onClick={() => void handleDelete(skill)} title={t("删除", "Delete")} className="p-2 text-error hover:bg-error-container/20 rounded-xl transition-all">
                     <span className="material-symbols-outlined text-[18px]">delete</span>
                   </button>
                 </div>
@@ -318,7 +328,7 @@ export default function SkillsPage() {
                 disabled={page === 1}
                 className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
               >
-                上一页
+                {t("上一页", "Prev")}
               </button>
               {Array.from({ length: Math.ceil(skills.length / PAGE_SIZE) }, (_, i) => i + 1).map((p) => (
                 <button
@@ -336,7 +346,7 @@ export default function SkillsPage() {
                 disabled={page === Math.ceil(skills.length / PAGE_SIZE)}
                 className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
               >
-                下一页
+                {t("下一页", "Next")}
               </button>
             </div>
           )}
@@ -346,9 +356,9 @@ export default function SkillsPage() {
       {/* ── 创建技能弹窗 ── */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-surface-container-lowest rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-headline font-bold text-xl text-on-surface">接入新技能</h2>
+              <h2 className="font-headline font-bold text-xl text-on-surface">{t("接入新技能", "Add New Skill")}</h2>
               <button onClick={() => setShowCreateModal(false)} className="p-1 hover:bg-surface-container rounded-lg">
                 <span className="material-symbols-outlined text-on-surface-variant">close</span>
               </button>
@@ -356,49 +366,49 @@ export default function SkillsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">技能标识 *</label>
-                  <input value={form.skill_id} onChange={(e) => setForm((f) => ({ ...f, skill_id: e.target.value }))} placeholder="如 med-reminder" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("技能标识", "Skill ID")} *</label>
+                  <input value={form.skill_id} onChange={(e) => setForm((f) => ({ ...f, skill_id: e.target.value }))} placeholder={t("如 med-reminder", "e.g. med-reminder")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">版本</label>
+                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("版本", "Version")}</label>
                   <input value={form.version} onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))} placeholder="1.0.0" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-on-surface-variant block mb-1">名称 *</label>
-                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="技能显示名称" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("名称", "Name")} *</label>
+                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={t("技能显示名称", "Skill display name")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-on-surface-variant block mb-1">描述</label>
-                <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} placeholder="技能功能说明..." className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("描述", "Description")}</label>
+                <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} placeholder={t("技能功能说明...", "Skill description...")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">分类</label>
-                  <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="健康管理" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("分类", "Category")}</label>
+                  <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder={t("健康管理", "Health Management")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">MCP 服务地址</label>
+                  <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("MCP 服务地址", "MCP Server URL")}</label>
                   <input value={form.mcp_server} onChange={(e) => setForm((f) => ({ ...f, mcp_server: e.target.value }))} placeholder="http://localhost:3100" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-on-surface-variant block mb-1">关键词（逗号分隔）</label>
-                <input value={form.keywords} onChange={(e) => setForm((f) => ({ ...f, keywords: e.target.value }))} placeholder="用药提醒, 复诊, 健康档案" className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("关键词（逗号分隔）", "Keywords (comma separated)")}</label>
+                <input value={form.keywords} onChange={(e) => setForm((f) => ({ ...f, keywords: e.target.value }))} placeholder={t("用药提醒, 复诊, 健康档案", "medication reminder, follow-up, health records")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-on-surface-variant block mb-1">触发示例（每行一条）</label>
-                <textarea value={form.trigger_examples} onChange={(e) => setForm((f) => ({ ...f, trigger_examples: e.target.value }))} rows={3} placeholder={"帮我设置用药提醒\n明天要复诊，帮我记一下"} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("触发示例（每行一条）", "Trigger Examples (one per line)")}</label>
+                <textarea value={form.trigger_examples} onChange={(e) => setForm((f) => ({ ...f, trigger_examples: e.target.value }))} rows={3} placeholder={t("帮我设置用药提醒\n明天要复诊，帮我记一下", "Set up medication reminder\nI have a follow-up tomorrow")} className="w-full border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.confirm_required} onChange={(e) => setForm((f) => ({ ...f, confirm_required: e.target.checked }))} className="rounded" />
-                <span className="text-sm text-on-surface">调用前需要用户二次确认</span>
+                <span className="text-sm text-on-surface">{t("调用前需要用户二次确认", "Require user confirmation before invocation")}</span>
               </label>
               {createError && <p className="text-sm text-error bg-error-container/20 rounded-xl px-3 py-2">{createError}</p>}
               <div className="flex gap-3 pt-2">
-                <button onClick={() => setShowCreateModal(false)} className="flex-1 py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium hover:bg-surface-container transition-all">取消</button>
+                <button onClick={() => setShowCreateModal(false)} className="flex-1 py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium hover:bg-surface-container transition-all">{t("取消", "Cancel")}</button>
                 <button onClick={() => void handleCreate()} disabled={creating} className="flex-1 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-all">
-                  {creating ? "注册中..." : "注册技能"}
+                  {creating ? t("注册中...", "Registering...") : t("注册技能", "Register Skill")}
                 </button>
               </div>
             </div>
@@ -409,10 +419,10 @@ export default function SkillsPage() {
       {/* ── 调用技能弹窗 ── */}
       {showInvokeModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-surface-container-lowest rounded-2xl shadow-2xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="font-headline font-bold text-lg text-on-surface">调用技能</h2>
+                <h2 className="font-headline font-bold text-lg text-on-surface">{t("调用技能", "Invoke Skill")}</h2>
                 <p className="text-sm text-on-surface-variant">{showInvokeModal.name}</p>
               </div>
               <button onClick={() => setShowInvokeModal(null)} className="p-1 hover:bg-surface-container rounded-lg">
@@ -421,7 +431,7 @@ export default function SkillsPage() {
             </div>
             {showInvokeModal.trigger_examples.length > 0 && (
               <div className="mb-3">
-                <p className="text-xs font-semibold text-on-surface-variant mb-1">触发示例</p>
+                <p className="text-xs font-semibold text-on-surface-variant mb-1">{t("触发示例", "Trigger Examples")}</p>
                 <ul className="space-y-1">
                   {showInvokeModal.trigger_examples.slice(0, 3).map((ex, i) => (
                     <li key={i} className="text-xs text-on-surface-variant bg-surface-container rounded-lg px-2 py-1">{ex}</li>
@@ -430,27 +440,27 @@ export default function SkillsPage() {
               </div>
             )}
             <div className="mb-4">
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">输入参数（JSON）</label>
+              <label className="text-xs font-semibold text-on-surface-variant block mb-1">{t("输入参数（JSON）", "Input Parameters (JSON)")}</label>
               <textarea value={invokeInput} onChange={(e) => setInvokeInput(e.target.value)} rows={5} className="w-full font-mono text-xs border border-outline-variant/30 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
             </div>
             {showInvokeModal.confirm_required && (
               <p className="text-xs text-tertiary bg-tertiary-container/20 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[14px]">warning</span>
-                此技能需确认，请在 JSON 中加入 &quot;confirmed&quot;: true
+                {t("此技能需确认，请在 JSON 中加入", "This skill requires confirmation, add")} &quot;confirmed&quot;: true
               </p>
             )}
             {invokeResult && (
               <div className={`rounded-xl p-3 mb-4 text-xs font-mono ${invokeResult.status === "success" || invokeResult.status === "degraded" ? "bg-secondary-container/20 text-on-surface" : "bg-error-container/20 text-error"}`}>
-                <p className="font-bold mb-1">状态：{invokeResult.status}
+                <p className="font-bold mb-1">{t("状态", "Status")}：{invokeResult.status}
                   {invokeResult.trace_id && <span className="font-normal text-on-surface-variant ml-2">trace: {invokeResult.trace_id}</span>}
                 </p>
                 <pre className="whitespace-pre-wrap break-all">{invokeResult.error ?? JSON.stringify(invokeResult.result, null, 2)}</pre>
               </div>
             )}
             <div className="flex gap-3">
-              <button onClick={() => setShowInvokeModal(null)} className="flex-1 py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium">关闭</button>
+              <button onClick={() => setShowInvokeModal(null)} className="flex-1 py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium">{t("关闭", "Close")}</button>
               <button onClick={() => void handleInvoke()} disabled={invoking} className="flex-1 py-2.5 bg-primary text-on-primary rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
-                {invoking ? "调用中..." : "发起调用"}
+                {invoking ? t("调用中...", "Invoking...") : t("发起调用", "Invoke")}
               </button>
             </div>
           </div>
@@ -460,10 +470,10 @@ export default function SkillsPage() {
       {/* ── 调用日志弹窗 ── */}
       {showLogsModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-6 max-h-[80vh] flex flex-col">
+          <div className="bg-surface-container-lowest rounded-2xl shadow-2xl w-full max-w-xl p-6 max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4 shrink-0">
               <div>
-                <h2 className="font-headline font-bold text-lg text-on-surface">调用日志</h2>
+                <h2 className="font-headline font-bold text-lg text-on-surface">{t("调用日志", "Invocation Logs")}</h2>
                 <p className="text-sm text-on-surface-variant">{showLogsModal.name}</p>
               </div>
               <button onClick={() => setShowLogsModal(null)} className="p-1 hover:bg-surface-container rounded-lg">
@@ -473,16 +483,16 @@ export default function SkillsPage() {
             <div className="flex-1 overflow-y-auto space-y-2">
               {logsLoading ? (
                 <div className="flex items-center justify-center py-10 text-on-surface-variant text-sm">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />加载中...
+                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />{t("加载中...", "Loading...")}
                 </div>
               ) : logs.length === 0 ? (
-                <div className="text-center py-10 text-on-surface-variant text-sm">暂无调用记录</div>
+                <div className="text-center py-10 text-on-surface-variant text-sm">{t("暂无调用记录", "No invocation records")}</div>
               ) : (
                 logs.map((log) => (
                   <div key={log.id} className="bg-surface-container rounded-xl px-4 py-3 text-xs">
                     <div className="flex items-center justify-between mb-1">
                       <span className={`font-bold ${log.result_status === "success" ? "text-secondary" : log.result_status === "degraded" ? "text-tertiary" : "text-error"}`}>{log.result_status.toUpperCase()}</span>
-                      <span className="text-on-surface-variant">{log.latency_ms}ms · {new Date(log.created_at).toLocaleString("zh-CN")}</span>
+                      <span className="text-on-surface-variant">{log.latency_ms}ms · {new Date(log.created_at).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</span>
                     </div>
                     <p className="text-on-surface-variant font-mono truncate">trace: {log.trace_id}</p>
                     {log.error_reason && <p className="text-error mt-1">{log.error_reason}</p>}
@@ -490,7 +500,7 @@ export default function SkillsPage() {
                 ))
               )}
             </div>
-            <button onClick={() => setShowLogsModal(null)} className="mt-4 w-full py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium shrink-0">关闭</button>
+            <button onClick={() => setShowLogsModal(null)} className="mt-4 w-full py-2.5 border border-outline-variant/30 text-on-surface rounded-xl text-sm font-medium shrink-0">{t("关闭", "Close")}</button>
           </div>
         </div>
       )}

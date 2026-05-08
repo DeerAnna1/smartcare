@@ -29,6 +29,7 @@ interface EventCard {
   medication_reminder_suggestion: string[];
   followup_reminder_suggestion: string[];
   record_update_suggestion: boolean;
+  insurance_material_suggestion?: string[];
   source_session_id?: string;
 }
 
@@ -83,9 +84,12 @@ export default function ConclusionPage({ params }: ConclusionPageProps) {
       });
       if (data.event_id) {
         router.push(`/event-confirm/${data.event_id}`);
+      } else {
+        alert("生成事件卡失败：未返回事件ID");
       }
     } catch (e) {
-      alert("生成事件卡失败，请重试");
+      const msg = e instanceof Error ? e.message : "未知错误";
+      alert(`生成事件卡失败：${msg}`);
     } finally {
       setGenerating(false);
     }

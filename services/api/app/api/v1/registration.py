@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps.auth import get_current_or_default_user
+from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
 from app.models.models import User
 from app.services.registration import RegistrationService
@@ -36,7 +36,7 @@ async def search_hospital(
     city: str = "",
     keyword: str = "",
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """搜索医院列表，支持城市和关键词过滤"""
     svc = RegistrationService(db)
@@ -50,7 +50,7 @@ async def search_department(
     hospital_id: str,
     keyword: str = "",
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """查询医院下的科室列表"""
     svc = RegistrationService(db)
@@ -64,7 +64,7 @@ async def search_doctor_schedule(
     department_id: str,
     date: str,  # YYYY-MM-DD
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """查询指定科室指定日期的医生排班和号源"""
     svc = RegistrationService(db)
@@ -79,7 +79,7 @@ async def quick_schedule_search(
     department: str = "",
     date: str = "",
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """按医院名+科室名+日期一步查询排班（不需要预先知道 ID）"""
     svc = RegistrationService(db)
@@ -94,7 +94,7 @@ async def quick_schedule_search(
 async def lock_slot(
     body: LockSlotRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """锁定号源，创建 LOCKED 状态订单，有效期 15 分钟"""
     svc = RegistrationService(db)
@@ -116,7 +116,7 @@ async def lock_slot(
 async def confirm_registration(
     body: ConfirmRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """确认挂号，LOCKED → CONFIRMED"""
     svc = RegistrationService(db)
@@ -132,7 +132,7 @@ async def confirm_registration(
 async def cancel_registration(
     body: CancelRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """取消挂号，归还号源"""
     svc = RegistrationService(db)
@@ -150,7 +150,7 @@ async def cancel_registration(
 async def get_registration_record(
     order_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """查询挂号订单详情"""
     svc = RegistrationService(db)

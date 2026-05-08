@@ -10,7 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
-from app.api.deps.auth import get_current_or_default_user
+from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
 from app.models.models import HealthRecord, User
 from app.schemas.schemas import (
@@ -48,7 +48,7 @@ def _safe_parse_dt(raw: str | None) -> datetime | None:
 
 @router.get("/profile", response_model=HealthArchiveProfileResponse)
 async def get_health_archive_profile(
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     profile = _safe_json_loads(user.profile)
     preferences = _safe_json_loads(user.preferences)
@@ -70,7 +70,7 @@ async def get_health_archive_profile(
 async def update_health_archive_profile(
     body: HealthArchiveProfileRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     profile = _safe_json_loads(user.profile)
     preferences = _safe_json_loads(user.preferences)
@@ -104,7 +104,7 @@ async def update_health_archive_profile(
 @router.get("", response_model=list[RecordResponse])
 async def list_records(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthRecord)
@@ -130,7 +130,7 @@ async def list_records(
 async def create_record(
     body: CreateRecordRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     record = HealthRecord(
         user_id=user.id,
@@ -159,7 +159,7 @@ async def create_record(
 async def sync_record(
     record_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthRecord).where(HealthRecord.id == record_id, HealthRecord.user_id == user.id)
@@ -176,7 +176,7 @@ async def sync_record(
 @router.post("/sync")
 async def batch_sync_records(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthRecord)
@@ -199,7 +199,7 @@ async def batch_sync_records(
 async def generate_ehr_summary(
     body: GenerateEhrSummaryRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthRecord)
@@ -261,7 +261,7 @@ async def generate_ehr_summary(
 @router.post("/export-pdf")
 async def export_ehr_pdf(
     body: ExportEhrPdfRequest,
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="导出内容不能为空")

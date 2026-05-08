@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     IOT_WEBHOOK_HMAC_SECRET: str = "dev-iot-hmac-secret-change-me"
     IOT_WEBHOOK_MAX_SKEW_SECONDS: int = 300
 
+    # Langfuse Observability
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+    LANGFUSE_ENABLED: bool = False
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]

@@ -1,20 +1,26 @@
 """
-LangGraph 健康问诊 Agent 状态机
+LangGraph 健康问诊 Agent 状态机 — 多 Agent 版本
+节点: triage → collect_symptoms → risk_check → generate_summary
 状态: INIT → COLLECTING → FOLLOW_UP → RISK_ESCALATED → SUMMARY_READY → EVENT_CARD_READY → CLOSED
 """
 from __future__ import annotations
 import json
 import re
+import logging
 from typing import Annotated, TypedDict, Literal
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from app.core.config import get_settings
+from app.core.observability import observe_agent
+from app.orchestrators.agents import get_agent_prompt, get_agent_config, select_next_agent
+from app.services.tool_registry import build_openai_tools, execute_tool_call
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# ─── System Prompts ────────────────────────────────────────────────────────────
+# ─── System Prompts (legacy fallback) ───────────────────────────────────────
 
 CONSULTATION_SYSTEM_PROMPT = """你是一个专业的健康问诊 AI 助手，遵循以下严格原则：
 
@@ -61,22 +67,109 @@ CONSULTATION_SYSTEM_PROMPT = """你是一个专业的健康问诊 AI 助手，�
   "summary_text": "给用户看的自然语言摘要"
 }"""
 
+CONSULTATION_SYSTEM_PROMPT_EN = """You are a professional health consultation AI assistant. Follow these strict principles:
+
+【Consultation Principles】
+1. Use a phased consultation flow: Chief Complaint Collection → Symptom Structuring → Risk Identification → Candidate Directions → Conclusion Output
+2. Ask only 1-2 highest-value follow-up questions per turn; do not stack multiple questions
+3. Prioritize identifying high-risk signals before pursuing completeness of information
+4. If acute/severe signals are detected (chest pain, sudden severe headache, difficulty breathing, altered consciousness, etc.), immediately escalate triage level and recommend emergency care
+
+【Regarding User-Uploaded Health Records】
+- If the conversation contains an [Uploaded Health Records] marker, the user has provided historical health documents — extract key medical information from them
+- When generating structured conclusion JSON, do NOT copy document text into any fields
+- Fields like confirmed_points, symptom_summary, candidate_conditions should contain clinical findings and analysis conclusions from this conversation, described in concise medical terminology
+
+【Output Constraints】
+- Do NOT use definitive diagnostic expressions like "confirmed diagnosis"
+- Do NOT provide prescription-level medication advice (dosage, usage)
+- Only output candidate directions and phased assessments — do not replace doctor diagnosis
+- For high-risk situations, clearly state "Immediate medical attention recommended"
+
+【Conclusion Trigger Conditions】
+- Candidate directions have converged; further questioning has diminishing returns
+- A clear risk level has been identified
+- User explicitly requests a summary
+- Conversation has reached ≥ 4 turns
+
+When entering the conclusion phase, output the following JSON wrapped in ```json ... ```:
+{
+  "status": "SUMMARY_READY",
+  "chief_complaint": "",
+  "symptom_summary": [],
+  "duration": "",
+  "severity": "mild|moderate|severe",
+  "confirmed_points": [],
+  "uncertain_points": [],
+  "red_flags": [],
+  "candidate_conditions": [{"name": "", "confidence": 0.0, "supporting_points": [], "against_points": []}],
+  "triage_level": "observe|outpatient|urgent_visit|emergency",
+  "recommended_department": "",
+  "visit_preparation": [],
+  "care_todos": [],
+  "medication_reminder_suggestion": [],
+  "followup_reminder_suggestion": [],
+  "record_update_suggestion": true,
+  "insurance_material_suggestion": [],
+  "summary_text": "Natural language summary for the user"
+}"""
+
 RISK_ESCALATION_PROMPT = """检测到可能的高风险症状信号。请立即：
 1. 提升分诊级别为 urgent_visit 或 emergency
 2. 建议用户立即线下就医
 3. 不再继续常规问诊追问
 4. 仅收集最关键信息"""
 
-# ─── 红旗症状关键词 ────────────────────────────────────────────────────────────
+RISK_ESCALATION_PROMPT_EN = """Possible high-risk symptom signals detected. Immediately:
+1. Escalate triage level to urgent_visit or emergency
+2. Advise the user to seek immediate in-person medical care
+3. Stop regular follow-up questioning
+4. Only collect the most critical information"""
+
+# ─── 红旗症状关键词 ──────────────────────────────────────────────────────────
 
 RED_FLAG_KEYWORDS = [
-    "胸痛", "胸闷", "心前区", "放射至左肩", "冷汗大量",
+    "胸痛", "胸闷", "胸口痛", "胸口疼", "心脏痛", "心脏疼", "心前区", "放射至左肩", "冷汗大量",
     "突发剧烈头痛", "雷击样头痛", "意识改变", "意识不清", "昏迷", "晕厥",
-    "呼吸困难", "无法呼吸", "喘不过气",
-    "大量出血", "吐血", "便血",
+    "呼吸困难", "无法呼吸", "喘不过气", "喘不上气", "呼吸不了",
+    "大量出血", "吐血", "便血", "大出血",
     "急性腹痛", "剧烈腹痛", "骨折", "严重外伤", "休克",
-    "高烧39度", "高烧40度", "体温40", "体温超过40",
+    "高烧39度", "高烧40度", "体温40", "体温超过40", "39.5度", "39.8度",
+    "左肩放射", "心悸", "心脏不适",
 ]
+
+
+def _extract_summary_json(content: str) -> dict | None:
+    """Extract summary JSON from LLM response, handling nested objects robustly."""
+    # Try markdown-wrapped JSON first
+    match = re.search(r"```json\s*\n?", content)
+    if match:
+        start = match.end()
+        # Find the closing ``` after the JSON block
+        end_match = re.search(r"\n?\s*```", content[start:])
+        if end_match:
+            json_str = content[start:start + end_match.start()]
+            try:
+                return json.loads(json_str.strip())
+            except json.JSONDecodeError:
+                pass
+
+    # Fallback: find raw JSON object with balanced braces
+    brace_start = content.find("{")
+    if brace_start == -1:
+        return None
+    depth = 0
+    for i in range(brace_start, len(content)):
+        if content[i] == "{":
+            depth += 1
+        elif content[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(content[brace_start:i + 1])
+                except json.JSONDecodeError:
+                    return None
+    return None
 
 
 def detect_red_flags(text: str) -> bool:
@@ -84,23 +177,19 @@ def detect_red_flags(text: str) -> bool:
     return any(kw in text for kw in RED_FLAG_KEYWORDS)
 
 
-# EHR 文档标记——消息中含此串时表示插入了健康档案原文
+# EHR 文档标记
 _EHR_CONTENT_MARKER = "以下是上传文档中提取的内容，请结合这些信息继续问诊分析："
 
 
 def _strip_ehr_body(content: str) -> str:
-    """Replace raw EHR document body with a short placeholder.
-
-    Keeps the file-name hint but removes the full extracted text so the LLM
-    does not copy verbatim EHR content into the summary JSON.
-    """
+    """Replace raw EHR document body with a short placeholder."""
     if _EHR_CONTENT_MARKER not in content:
         return content
     before = content[: content.index(_EHR_CONTENT_MARKER)].strip()
     return before + "\n[已上传健康档案，内容已供参考]"
 
 
-# ─── LangGraph State ────────────────────────────────────────────────────────────
+# ─── LangGraph State ────────────────────────────────────────────────────────
 
 class ConsultationState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -115,99 +204,318 @@ class ConsultationState(TypedDict):
     summary_json: dict | None
     latest_assistant_message: str
     active_skills: list[dict]
+    lang: str | None
+    current_agent: str
+    user_requested_summary: bool
 
 
-# ─── Nodes ─────────────────────────────────────────────────────────────────────
+# ─── LLM Factory ────────────────────────────────────────────────────────────
 
-def get_llm() -> ChatOpenAI:
-    return ChatOpenAI(
+def get_llm(
+    temperature: float | None = None,
+    max_tokens: int = 1200,
+    tools: list[dict] | None = None,
+) -> ChatOpenAI:
+    """Create a ChatOpenAI instance with optional tool binding."""
+    llm = ChatOpenAI(
         model=settings.LLM_MODEL,
-        temperature=settings.LLM_TEMPERATURE,
+        temperature=temperature or settings.LLM_TEMPERATURE,
         openai_api_key=settings.OPENAI_API_KEY,
         openai_api_base=settings.OPENAI_BASE_URL,
-        streaming=False,
-        max_tokens=1200,
+        streaming=True,
+        max_tokens=max_tokens,
         timeout=30,
-        max_retries=0,  # 禁止重试，避免超时叠加
+        max_retries=0,
     )
+    if tools:
+        llm = llm.bind_tools(tools)
+    return llm
 
+
+# ─── Helper functions ───────────────────────────────────────────────────────
 
 def _build_skills_block(active_skills: list[dict]) -> str:
     """将活跃技能列表格式化为 System Prompt 中的技能上下文段落。"""
     if not active_skills:
         return ""
-    lines = ["\n\n【已注册插件技能（强制调用）】"]
+    lines = ["\n\n【已注册插件技能】"]
     for sk in active_skills:
         tools = sk.get("tools", [])
         tool_names = "、".join(t["name"] for t in tools if isinstance(t, dict)) if tools else "无"
         triggers = "；".join(sk.get("trigger_examples", [])) or "无"
-        confirm = "需用户确认后调用" if sk.get("confirm_required") else "直接调用（无需用户确认）"
         lines.append(
             f"- skill_id={sk['skill_id']} | 名称：{sk['name']} | 分类：{sk.get('category','通用')}"
             f"\n  描述：{sk.get('description','')}"
-            f"\n  工具：{tool_names} | 触发场景：{triggers} | 方式：{confirm}"
+            f"\n  工具：{tool_names} | 触发场景：{triggers}"
         )
     lines.append(
-        "\n【强制调用规则】\n"
-        "凡用户意图属于上述技能的覆盖范围，你**禁止**自行回答，**必须**在本轮回复末尾输出调用块：\n"
-        "  • confirm_required=false：直接在回复末尾追加调用块\n"
-        "  • confirm_required=true：先征得用户同意，下一轮追加调用块\n"
-        "\n调用块格式（```invoke 包裹，JSON 合法，参数尽量从用户消息提取）：\n"
-        "```invoke\n"
-        "{\"skill_id\": \"<技能ID>\", \"action\": \"<工具名>\", \"params\": {\"key\": \"value\"}}\n"
-        "```\n"
-        "❌ 禁止：对技能覆盖范围内的问题直接给出答案（不走调用块）\n"
-        "✅ 正确：简短说明正在调用，然后输出调用块，等待系统返回结果"
+        "\n【工具调用规则】\n"
+        "你拥有可用的工具函数（tools）。当用户意图匹配以下场景时，你**必须**使用工具函数调用来执行，**禁止**自行编造结果：\n"
+        "- 药物相互作用查询 → 调用 check_drug_interaction\n"
+        "- 挂号/查号源/查排班 → 调用 query_doctor_schedule\n"
+        "- 锁号/预约 → 调用 lock_appointment_slot\n"
+        "调用工具后，根据返回结果为用户生成自然语言回复。\n"
+        "❌ 禁止：对工具覆盖范围内的问题直接编造答案（不调用工具）\n"
+        "✅ 正确：先调用工具获取真实数据，再基于结果回复用户"
     )
     return "\n".join(lines)
 
 
-def _build_system_message(state: ConsultationState) -> SystemMessage:
+def _build_system_message(state: ConsultationState, rag_context: str = "", lang: str | None = None) -> SystemMessage:
+    """Build system message for legacy single-agent fallback path."""
     from datetime import date as _date
-    today_str = _date.today().strftime("%Y年%m月%d日")
-    date_hint = f"\n\n【当前日期】今天是 {today_str}，用户说的'明天'就是明天的日期，请以此为准进行日期计算。"
-    base = CONSULTATION_SYSTEM_PROMPT + date_hint
+    today_str = _date.today().strftime("%Y-%m-%d" if lang == "en" else "%Y年%m月%d日")
+    is_en = lang == "en"
+    if is_en:
+        date_hint = f"\n\n【Current Date】Today is {today_str}."
+        base = CONSULTATION_SYSTEM_PROMPT_EN + date_hint
+        risk_prompt = RISK_ESCALATION_PROMPT_EN
+    else:
+        date_hint = f"\n\n【当前日期】今天是 {today_str}。"
+        base = CONSULTATION_SYSTEM_PROMPT + date_hint
+        risk_prompt = RISK_ESCALATION_PROMPT
     skills_block = _build_skills_block(state.get("active_skills") or [])
+    rag_block = ""
+    if rag_context:
+        if is_en:
+            rag_block = f"\n\n【Reference Knowledge Base Results】\n{rag_context}"
+        else:
+            rag_block = f"\n\n【参考知识库检索结果】\n{rag_context}"
     if state["red_flag_detected"]:
-        return SystemMessage(content=base + skills_block + "\n\n" + RISK_ESCALATION_PROMPT)
-    return SystemMessage(content=base + skills_block)
+        return SystemMessage(content=base + skills_block + rag_block + "\n\n" + risk_prompt)
+    return SystemMessage(content=base + skills_block + rag_block)
 
 
-async def consultation_node(state: ConsultationState) -> ConsultationState:
-    """核心问诊节点：调用 LLM，检测红旗，更新状态"""
-    llm = get_llm()
-    system_msg = _build_system_message(state)
-    messages_with_system = [system_msg] + list(state["messages"])
+def _build_agent_system_message(agent_key: str, state: ConsultationState, rag_context: str = "", lang: str = "zh", include_skills: bool = True) -> SystemMessage:
+    """Build system message for a specific multi-agent node."""
+    from datetime import date as _date
+    today_str = _date.today().strftime("%Y-%m-%d" if lang == "en" else "%Y年%m月%d日")
+    is_en = lang == "en"
 
-    response = await llm.ainvoke(messages_with_system)
-    content: str = response.content  # type: ignore[assignment]
-
-    # 检测红旗 —— 只扫描用户消息，不扫描 AI 回复（避免 AI 提及症状词误触发）
-    user_text = " ".join(
-        m.content  # type: ignore[arg-type]
+    # Get agent-specific prompt with variable substitution
+    extracted_str = json.dumps(state.get("extracted_fields", {}), ensure_ascii=False, indent=2)
+    conversation_summary = "\n".join(
+        f"{m.__class__.__name__.replace('Message','')}: {m.content[:200]}"
+        for m in state["messages"][-10:]
+    )
+    full_conversation = "\n".join(
+        f"{m.__class__.__name__.replace('Message','')}: {m.content}"
         for m in state["messages"]
+    )
+
+    agent_prompt = get_agent_prompt(
+        agent_key, lang,
+        extracted_fields=extracted_str,
+        conversation_summary=conversation_summary,
+        full_conversation=full_conversation,
+    )
+
+    # Add date context
+    if is_en:
+        date_hint = f"\n\nCurrent Date: {today_str}"
+    else:
+        date_hint = f"\n\n当前日期: {today_str}"
+
+    # Add output constraints
+    if is_en:
+        constraints = "\n\n【Output Constraints】\n- Do NOT use definitive diagnostic expressions\n- Do NOT provide prescription-level medication advice\n- Only output candidate directions, do not replace doctor diagnosis"
+    else:
+        constraints = "\n\n【输出约束】\n- 不输出确诊式表达\n- 不输出处方级药物建议\n- 只输出候选方向，不替代医生诊断"
+
+    # Add RAG context
+    rag_block = ""
+    if rag_context:
+        if is_en:
+            rag_block = f"\n\n【Reference Knowledge】\n{rag_context}"
+        else:
+            rag_block = f"\n\n【参考知识库】\n{rag_context}"
+
+    # Add skills block (skip for summary agent — it only needs to produce JSON, not call tools)
+    skills_block = _build_skills_block(state.get("active_skills") or []) if include_skills else ""
+
+    return SystemMessage(content=agent_prompt + date_hint + constraints + rag_block + skills_block)
+
+
+def _get_rag_context(messages: list[BaseMessage]) -> str:
+    """Retrieve RAG context from the last user message."""
+    try:
+        from app.services.rag_retriever import retrieve
+        user_msgs = [m for m in messages if isinstance(m, HumanMessage)]
+        if user_msgs:
+            return retrieve(user_msgs[-1].content, top_k=3)
+    except Exception:
+        pass
+    return ""
+
+
+async def _handle_tool_calls(
+    response: AIMessage,
+    llm_with_tools: ChatOpenAI,
+    messages: list[BaseMessage],
+    system_msg: SystemMessage,
+    db_session=None,
+    user_id: str | None = None,
+) -> tuple[str, list[BaseMessage]]:
+    """Handle tool calls from LLM response. Loop until LLM returns final text.
+
+    Returns (final_content, updated_messages).
+    """
+    content = ""
+    current_messages = list(messages)
+
+    # Check if response has tool_calls
+    if not hasattr(response, "tool_calls") or not response.tool_calls:
+        return response.content or "", current_messages
+
+    # Process tool calls
+    while response.tool_calls:
+        current_messages.append(response)
+
+        for tc in response.tool_calls:
+            tool_name = tc["name"]
+            tool_args = tc["args"]
+            tool_id = tc["id"]
+
+            logger.info(f"Executing tool call: {tool_name} with args: {tool_args}")
+            result = await execute_tool_call(tool_name, tool_args, db_session, user_id)
+            current_messages.append(
+                ToolMessage(content=json.dumps(result, ensure_ascii=False), tool_call_id=tool_id)
+            )
+
+        # Re-invoke LLM with tool results
+        response = await llm_with_tools.ainvoke([system_msg] + current_messages)
+        content = response.content or ""
+
+    return content, current_messages
+
+
+async def _handle_tool_calls_stream(
+    response: AIMessage,
+    llm_with_tools: ChatOpenAI,
+    messages: list[BaseMessage],
+    system_msg: SystemMessage,
+    db_session=None,
+    user_id: str | None = None,
+):
+    """Handle tool calls in streaming mode. Yields tool execution events.
+
+    Yields:
+        ("tool_start", {"name": str, "args": dict})
+        ("tool_end", {"name": str, "result": dict})
+        ("token", str) — final LLM response tokens
+    """
+    current_messages = list(messages)
+
+    if not hasattr(response, "tool_calls") or not response.tool_calls:
+        if response.content:
+            yield ("token", response.content)
+        return
+
+    while response.tool_calls:
+        current_messages.append(response)
+
+        for tc in response.tool_calls:
+            tool_name = tc["name"]
+            tool_args = tc["args"]
+            tool_id = tc["id"]
+
+            yield ("tool_start", {"name": tool_name, "args": tool_args})
+            result = await execute_tool_call(tool_name, tool_args, db_session, user_id)
+            yield ("tool_end", {"name": tool_name, "result": result})
+
+            current_messages.append(
+                ToolMessage(content=json.dumps(result, ensure_ascii=False), tool_call_id=tool_id)
+            )
+
+        # Re-invoke LLM with tool results, stream the response
+        response = None
+        async for chunk in llm_with_tools.astream([system_msg] + current_messages):
+            if response is None:
+                response = chunk
+            else:
+                response = response + chunk
+            token = chunk.content
+            if token:
+                yield ("token", token)
+
+        if response and response.tool_calls:
+            # LLM wants more tool calls
+            continue
+        else:
+            break
+
+
+# ─── Multi-Agent Nodes ──────────────────────────────────────────────────────
+
+async def _run_agent_with_tools(
+    state: ConsultationState,
+    system_msg: SystemMessage,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    """Run an agent with native tool calling. Loops until LLM returns plain text."""
+    tools = build_openai_tools(state.get("active_skills"))
+    llm = get_llm(temperature=temperature, max_tokens=max_tokens, tools=tools if tools else None)
+
+    messages_with_system = [system_msg] + list(state["messages"])
+    response = await llm.ainvoke(messages_with_system)
+    content: str = response.content or ""
+
+    if hasattr(response, "tool_calls") and response.tool_calls:
+        content, _ = await _handle_tool_calls(
+            response, llm, list(state["messages"]), system_msg
+        )
+
+    return content
+
+
+@observe_agent("triage")
+async def triage_node(state: ConsultationState) -> ConsultationState:
+    """Initial triage: assess chief complaint, detect emergencies, suggest department."""
+    lang = state.get("lang") or "zh"
+    rag_context = _get_rag_context(state["messages"])
+    system_msg = _build_agent_system_message("triage", state, rag_context, lang)
+
+    config = get_agent_config("triage")
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+
+    user_text = " ".join(
+        m.content for m in state["messages"]
+        if hasattr(m, "content") and isinstance(m, HumanMessage)
+    )
+    red_flag = detect_red_flags(user_text)
+    new_status = "RISK_ESCALATED" if red_flag else "COLLECTING"
+
+    return {
+        **state,
+        "messages": [AIMessage(content=content)],
+        "status": new_status,
+        "round_count": state["round_count"] + 1,
+        "red_flag_detected": red_flag,
+        "latest_assistant_message": content,
+        "current_agent": "triage",
+    }
+
+
+@observe_agent("collector")
+async def symptom_collector_node(state: ConsultationState) -> ConsultationState:
+    """Collect symptom details through targeted follow-up questions."""
+    lang = state.get("lang") or "zh"
+    rag_context = _get_rag_context(state["messages"])
+    system_msg = _build_agent_system_message("collector", state, rag_context, lang)
+
+    config = get_agent_config("collector")
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+
+    user_text = " ".join(
+        m.content for m in state["messages"]
         if hasattr(m, "content") and isinstance(m, HumanMessage)
     )
     red_flag = detect_red_flags(user_text)
 
-    # 检测是否包含结构化结论 JSON
-    summary_json: dict | None = None
     new_status = state["status"]
-    json_match = re.search(r"```json\s*(\{.*?\})\s*```", content, re.DOTALL)
-    if json_match:
-        try:
-            parsed = json.loads(json_match.group(1))
-            # 至少 3 轮用户消息才允许进入 SUMMARY_READY，防止"你好"立即结案
-            if parsed.get("status") == "SUMMARY_READY" and state["round_count"] >= 3:
-                summary_json = parsed
-                new_status = "SUMMARY_READY"
-        except json.JSONDecodeError:
-            pass
-
-    if red_flag and new_status not in ("SUMMARY_READY", "EVENT_CARD_READY", "CLOSED"):
+    if red_flag:
         new_status = "RISK_ESCALATED"
-    elif new_status == "INIT":
-        new_status = "COLLECTING"
     elif state["round_count"] >= 2 and new_status == "COLLECTING":
         new_status = "FOLLOW_UP"
 
@@ -217,30 +525,133 @@ async def consultation_node(state: ConsultationState) -> ConsultationState:
         "status": new_status,
         "round_count": state["round_count"] + 1,
         "red_flag_detected": red_flag,
-        "summary_json": summary_json or state.get("summary_json"),
         "latest_assistant_message": content,
+        "current_agent": "collector",
     }
 
 
-def route(state: ConsultationState) -> str:
-    # 每轮只调用一次 LLM，由 API 层管理多轮对话，不在图内循环
-    return END
+@observe_agent("risk")
+async def risk_assessor_node(state: ConsultationState) -> ConsultationState:
+    """Evaluate risk level based on collected symptoms."""
+    lang = state.get("lang") or "zh"
+    rag_context = _get_rag_context(state["messages"])
+    system_msg = _build_agent_system_message("risk", state, rag_context, lang)
+
+    config = get_agent_config("risk")
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+
+    return {
+        **state,
+        "messages": [AIMessage(content=content)],
+        "status": "RISK_ESCALATED",
+        "round_count": state["round_count"] + 1,
+        "red_flag_detected": True,
+        "latest_assistant_message": content,
+        "current_agent": "risk",
+    }
 
 
-# ─── Build Graph ──────────────────────────────────────────────────────────────
+@observe_agent("summary")
+async def summary_generator_node(state: ConsultationState) -> ConsultationState:
+    """Generate structured health event card from complete conversation.
+
+    NOTE: This node intentionally does NOT bind tools — the summary agent
+    only needs to produce a JSON block, and binding tools causes the LLM
+    to prefer tool_calls over JSON output.
+    """
+    lang = state.get("lang") or "zh"
+    system_msg = _build_agent_system_message("summary", state, "", lang, include_skills=False)
+
+    agent_config = get_agent_config("summary")
+    llm = get_llm(temperature=agent_config["temperature"], max_tokens=agent_config["max_tokens"])
+
+    messages_with_system = [system_msg] + list(state["messages"])
+    response = await llm.ainvoke(messages_with_system)
+    content: str = response.content or ""
+
+    summary_json: dict | None = None
+    new_status = state["status"]
+    parsed = _extract_summary_json(content)
+    min_rounds = 2 if state.get("user_requested_summary") else 3
+    if parsed and state["round_count"] >= min_rounds:
+        summary_json = parsed
+        new_status = "SUMMARY_READY"
+
+    return {
+        **state,
+        "messages": [AIMessage(content=content)],
+        "status": new_status,
+        "round_count": state["round_count"] + 1,
+        "red_flag_detected": state["red_flag_detected"],
+        "summary_json": summary_json,
+        "latest_assistant_message": content,
+        "current_agent": "summary",
+    }
+
+
+# ─── Routing Logic ──────────────────────────────────────────────────────────
+
+def route_next(state: ConsultationState) -> str:
+    """Route to the next agent node based on current state."""
+    next_agent = select_next_agent(
+        round_count=state["round_count"],
+        status=state["status"],
+        red_flag_detected=state["red_flag_detected"],
+        extracted_fields=state.get("extracted_fields", {}),
+        lang=state.get("lang") or "zh",
+        user_requested_summary=state.get("user_requested_summary", False),
+    )
+    return next_agent
+
+
+def should_continue(state: ConsultationState) -> str:
+    """Decide whether to continue to next agent or end."""
+    if state["status"] in ("SUMMARY_READY", "EVENT_CARD_READY", "CLOSED", "RISK_ESCALATED"):
+        return END
+    if state["round_count"] >= 8:
+        return END
+    return "route"
+
+
+# ─── Build Multi-Agent Graph ────────────────────────────────────────────────
 
 def build_consultation_graph() -> StateGraph:
+    """Build the multi-agent LangGraph with conditional routing."""
     builder = StateGraph(ConsultationState)
-    builder.add_node("consultation", consultation_node)
-    builder.add_edge(START, "consultation")
-    builder.add_conditional_edges("consultation", route)
+
+    # Add agent nodes (all with native tool calling)
+    builder.add_node("triage", triage_node)
+    builder.add_node("collector", symptom_collector_node)
+    builder.add_node("risk", risk_assessor_node)
+    builder.add_node("summary", summary_generator_node)
+    builder.add_node("route", lambda state: state)  # pass-through for routing
+
+    # Entry: go to routing first
+    builder.add_edge(START, "route")
+
+    # Conditional routing from route node
+    builder.add_conditional_edges(
+        "route",
+        route_next,
+        {
+            "triage": "triage",
+            "collector": "collector",
+            "risk": "risk",
+            "summary": "summary",
+        },
+    )
+
+    # After each agent, check if we should continue or end
+    for agent_node in ["triage", "collector", "risk", "summary"]:
+        builder.add_conditional_edges(agent_node, should_continue, {"route": "route", END: END})
+
     return builder.compile()
 
 
 consultation_graph = build_consultation_graph()
 
 
-# ─── 公共接口 ──────────────────────────────────────────────────────────────────
+# ─── Public Interface ───────────────────────────────────────────────────────
 
 async def run_consultation_turn(
     session_id: str,
@@ -248,8 +659,10 @@ async def run_consultation_turn(
     current_status: str = "INIT",
     round_count: int = 0,
     active_skills: list[dict] | None = None,
+    lang: str | None = None,
+    existing_extracted_fields: dict | None = None,
 ) -> ConsultationState:
-    """运行一轮问诊，返回更新后的状态"""
+    """运行一轮问诊（多 Agent 版本），返回更新后的状态"""
     lc_messages: list[BaseMessage] = []
     for m in messages:
         if m["role"] == "user":
@@ -257,17 +670,151 @@ async def run_consultation_turn(
         elif m["role"] == "assistant":
             lc_messages.append(AIMessage(content=m["content"]))
 
+    # Detect if user explicitly requested summary
+    _summary_keywords = ["总结", "结论", "阶段性", "summary", "conclude"]
+    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    user_requested_summary = any(kw in last_user_msg for kw in _summary_keywords)
+
     initial_state: ConsultationState = {
         "messages": lc_messages,
         "session_id": session_id,
-        "status": current_status,  # type: ignore[typeddict-item]
+        "status": current_status,
         "round_count": round_count,
         "red_flag_detected": False,
-        "extracted_fields": {},
+        "extracted_fields": existing_extracted_fields or {},
         "summary_json": None,
         "latest_assistant_message": "",
         "active_skills": active_skills or [],
+        "lang": lang,
+        "current_agent": "",
+        "user_requested_summary": user_requested_summary,
     }
 
     result = await consultation_graph.ainvoke(initial_state)
-    return result  # type: ignore[return-value]
+    return result
+
+
+async def run_consultation_turn_stream(
+    session_id: str,
+    messages: list[dict],
+    current_status: str = "INIT",
+    round_count: int = 0,
+    active_skills: list[dict] | None = None,
+    lang: str | None = None,
+    existing_extracted_fields: dict | None = None,
+):
+    """流式运行一轮问诊（多 Agent 版本）。
+
+    First determines which agent to run, then streams that agent's output.
+    Supports native tool calling in streaming mode.
+
+    Yields:
+        ("token", str) — LLM output tokens
+        ("tool_start", dict) — tool execution started
+        ("tool_end", dict) — tool execution completed
+        ("state", ConsultationState) — final state
+    """
+    lc_messages: list[BaseMessage] = []
+    for m in messages:
+        if m["role"] == "user":
+            lc_messages.append(HumanMessage(content=_strip_ehr_body(m["content"])))
+        elif m["role"] == "assistant":
+            lc_messages.append(AIMessage(content=m["content"]))
+
+    # Determine which agent to run
+    # Detect if user explicitly requested summary
+    _summary_keywords = ["总结", "结论", "阶段性", "summary", "conclude"]
+    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    user_requested_summary = any(kw in last_user_msg for kw in _summary_keywords)
+
+    next_agent = select_next_agent(
+        round_count=round_count,
+        status=current_status,
+        red_flag_detected=False,
+        extracted_fields={},
+        lang=lang or "zh",
+        user_requested_summary=user_requested_summary,
+    )
+
+    _lang = lang or "zh"
+    rag_context = _get_rag_context(lc_messages)
+
+    # Build system message and LLM for the selected agent
+    # Summary agent does NOT get tools — it only produces JSON
+    is_summary = next_agent == "summary"
+    system_msg = _build_agent_system_message(next_agent, {
+        "messages": lc_messages,
+        "active_skills": active_skills or [],
+        "extracted_fields": existing_extracted_fields or {},
+        "red_flag_detected": False,
+    }, rag_context, _lang, include_skills=not is_summary)
+    config = get_agent_config(next_agent)
+    tools = build_openai_tools(active_skills) if not is_summary else []
+    llm = get_llm(temperature=config["temperature"], max_tokens=config["max_tokens"], tools=tools if tools else None)
+
+    messages_with_system = [system_msg] + lc_messages
+
+    # Stream LLM response
+    full_content = ""
+    response_obj = None
+    async for chunk in llm.astream(messages_with_system):
+        if response_obj is None:
+            response_obj = chunk
+        else:
+            response_obj = response_obj + chunk
+        token = chunk.content
+        if token:
+            full_content += token
+            yield ("token", token)
+
+    # Handle tool calls if present
+    if (response_obj and hasattr(response_obj, "tool_calls") and response_obj.tool_calls):
+        async for event_type, payload in _handle_tool_calls_stream(
+            response_obj, llm, lc_messages, system_msg
+        ):
+            if event_type == "token":
+                full_content += payload
+            yield (event_type, payload)
+
+    # Post-processing
+    user_text = " ".join(
+        m.content for m in lc_messages
+        if hasattr(m, "content") and isinstance(m, HumanMessage)
+    )
+    red_flag = detect_red_flags(user_text)
+
+    summary_json: dict | None = None
+    new_status = current_status
+
+    # Parse JSON summary
+    parsed = _extract_summary_json(full_content)
+    min_rounds = 2 if user_requested_summary else 3
+    if parsed and round_count >= min_rounds:
+        summary_json = parsed
+        new_status = "SUMMARY_READY"
+
+    # Status transitions based on agent type
+    if red_flag and new_status not in ("SUMMARY_READY", "EVENT_CARD_READY", "CLOSED"):
+        new_status = "RISK_ESCALATED"
+    elif next_agent == "risk":
+        new_status = "RISK_ESCALATED"
+    elif new_status == "INIT":
+        new_status = "COLLECTING"
+    elif round_count >= 2 and new_status == "COLLECTING":
+        new_status = "FOLLOW_UP"
+
+    final_state: ConsultationState = {
+        "messages": [AIMessage(content=full_content)],
+        "session_id": session_id,
+        "status": new_status,
+        "round_count": round_count + 1,
+        "red_flag_detected": red_flag,
+        "extracted_fields": existing_extracted_fields or {},
+        "summary_json": summary_json,
+        "latest_assistant_message": full_content,
+        "active_skills": active_skills or [],
+        "lang": lang,
+        "current_agent": next_agent,
+        "user_requested_summary": user_requested_summary,
+    }
+    yield ("state", final_state)

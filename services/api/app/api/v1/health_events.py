@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.api.deps.auth import get_current_or_default_user
+from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
 from app.models.models import HealthEvent, HealthRecord, User
 from app.schemas.schemas import (
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/health-events", tags=["健康事件"])
 @router.get("", response_model=list[EventCardResponse])
 async def list_events(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthEvent)
@@ -49,7 +49,7 @@ async def list_events(
 async def get_event(
     event_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)
@@ -87,7 +87,7 @@ async def confirm_event(
     event_id: str,
     body: ConfirmEventCardRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)
@@ -105,7 +105,7 @@ async def confirm_event(
 async def execute_event(
     event_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """执行事件卡中的所有推荐任务"""
     result = await db.execute(
@@ -175,7 +175,7 @@ async def execute_event(
 async def archive_event(
     event_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)
@@ -227,7 +227,7 @@ async def complete_task(
     event_id: str,
     task_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     """标记任务为完成"""
     result = await db.execute(
@@ -256,7 +256,7 @@ async def complete_task(
 async def get_recommended_tasks(
     event_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_or_default_user),
+    user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
         select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)

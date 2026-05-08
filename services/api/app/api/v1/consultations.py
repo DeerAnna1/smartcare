@@ -30,10 +30,12 @@ from app.schemas.schemas import (
     SessionDetailResponse, MessageItem,
     CreateEventCardRequest, EventCardResponse,
 )
-from app.orchestrators.consultation import run_consultation_turn, detect_red_flags
+from app.orchestrators.consultation import run_consultation_turn, run_consultation_turn_stream, detect_red_flags
 from app.services.registration import RegistrationService
 from app.services.drug_interaction import query_drug_interactions, ZH_TO_EN
 from app.services.risk_guardrail import emergency_reply, evaluate_risk
+from app.services.tool_registry import execute_tool_call
+from app.core.observability import flush_langfuse
 
 router = APIRouter(prefix="/consultations", tags=["健康问诊"])
 
@@ -99,6 +101,48 @@ def _extract_drug_names_from_text(text: str) -> list[str]:
                     break
 
     return found
+
+
+def _should_force_registration_skill(user_text: str, active_skills: list[dict]) -> tuple[bool, dict]:
+    """
+    当用户明显在问'挂号/预约/查号源/排班'时，兜底强制触发挂号预约技能。
+    目的：避免 LLM 漏输出 invoke 块或 native function calling 不可用时技能未调用。
+    """
+    if not any(s.get("skill_id") == "appointment-booking" for s in active_skills):
+        return False, {}
+
+    text = (user_text or "").strip()
+    intent_patterns = [
+        r"挂号", r"预约", r"查号源", r"排班", r"看.+科", r"挂.+科",
+        r"有没有号", r"有号吗", r"号源", r"就诊", r"门诊",
+        r"帮我挂", r"帮我约", r"能挂", r"能约", r"想看",
+        r"book.*appointment", r"schedule.*doctor", r"make.*appointment",
+    ]
+    has_intent = any(re.search(p, text) for p in intent_patterns)
+    if not has_intent:
+        return False, {}
+
+    # Extract department (longer names first to avoid partial matches)
+    dept_match = re.search(r"(心内科|骨科|皮肤科|妇产科|儿科|神经内科|消化内科|呼吸内科|眼科|耳鼻喉科|口腔科|泌尿外科|内分泌科|中医科|急诊科|内科|外科|妇科|产科|男科|肿瘤科|精神科|心理科|康复科|风湿免疫科|血液科|肾内科|肝胆外科|普外科|胸外科|血管外科|疼痛科|营养科|全科|感染科|变态反应科|心内|消化|呼吸|神经)", text)
+    dept = dept_match.group(1) if dept_match else "内科"
+
+    # Extract hospital
+    hospital = ""
+    hosp_match = re.search(r"([一-鿿]{2,}(?:医院|诊所|卫生院|中心))", text)
+    if hosp_match:
+        hospital = hosp_match.group(1)
+
+    # Extract date hint
+    date_hint = "明天"
+    for word in ["今天", "明天", "后天", "大后天"]:
+        if word in text:
+            date_hint = word
+            break
+    date_match = re.search(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})", text)
+    if date_match:
+        date_hint = date_match.group(1)
+
+    return True, {"department": dept, "hospital": hospital, "date": date_hint}
 
 
 def _should_force_drug_skill(user_text: str, active_skills: list[dict]) -> tuple[bool, list[str]]:
@@ -361,7 +405,7 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_required),
 ):
-    """返回当前用户的历史问诊列表"""
+    """返回当前用户的历史问诊列表（仅包含有过至少一轮交互的会话）"""
     result = await db.execute(
         select(ConsultationSession)
         .where(ConsultationSession.user_id == user.id)
@@ -369,9 +413,16 @@ async def list_sessions(
     )
     sessions = result.scalars().all()
     items = []
-    # 提取技能调用标签：匹配 **✅/⚠️ 【技能名】** 这样的 Markdown 格式
     _skill_tag_re = re.compile(r"[✅⚠️]\s*【([^】]+)】")
     for s in sessions:
+        # Skip sessions with no user messages
+        try:
+            msgs = json.loads(s.raw_messages or "[]")
+            user_msg_count = sum(1 for m in msgs if isinstance(m, dict) and m.get("role") == "user")
+            if user_msg_count == 0:
+                continue
+        except Exception:
+            continue
         extracted = json.loads(s.extracted_fields or "{}")
         # 从消息中提取技能调用标签
         skill_tags: list[str] = []
@@ -636,6 +687,51 @@ async def send_message(
             red_flag_detected=False,
         )
 
+    # 兜底：用户明显要挂号/预约时，强制触发挂号预约技能（不依赖 LLM 是否输出 invoke 或 native function calling）
+    force_reg, reg_params = _should_force_registration_skill(body.content, active_skills)
+    if force_reg:
+        t_start = time.time()
+        result = await _execute_skill(
+            skill_id="appointment-booking",
+            action="query_schedule",
+            params=reg_params,
+            active_skills=active_skills,
+            db=db,
+            user_id=user.id,
+        )
+        latency_ms = int((time.time() - t_start) * 1000)
+        await _record_tool_invocation(
+            skill_id="appointment-booking",
+            params=reg_params,
+            result=result,
+            latency_ms=latency_ms,
+            active_skills=active_skills,
+            db=db,
+        )
+        assistant_content = _format_skill_result(
+            skill_id="appointment-booking",
+            action="query_schedule",
+            result=result,
+            active_skills=active_skills,
+        )
+        messages.append({"role": "assistant", "content": assistant_content})
+        session.raw_messages = json.dumps(messages, ensure_ascii=False)
+        await db.flush()
+        await db.commit()
+        return SessionMessageResponse(
+            status=session.status,
+            assistant_message=assistant_content,
+            structured_state={},
+            red_flag_detected=False,
+        )
+
+    # Load existing extracted fields for context (e.g., summary continuation)
+    existing_extracted = {}
+    try:
+        existing_extracted = json.loads(session.extracted_fields or "{}")
+    except Exception:
+        pass
+
     try:
         state = await asyncio.wait_for(
             run_consultation_turn(
@@ -644,6 +740,8 @@ async def send_message(
                 current_status=session.status,
                 round_count=len([m for m in messages if m["role"] == "user"]),
                 active_skills=active_skills,
+                lang=body.lang,
+                existing_extracted_fields=existing_extracted,
             ),
             timeout=45,
         )
@@ -666,12 +764,243 @@ async def send_message(
     await db.flush()
     await db.commit()
 
+    # Flush Langfuse traces for immediate visibility
+    flush_langfuse()
+
     return SessionMessageResponse(
         status=state["status"],
         assistant_message=assistant_content,
         structured_state=state.get("extracted_fields") or {},
         red_flag_detected=state["red_flag_detected"],
     )
+
+
+@router.post("/{session_id}/messages/stream")
+async def send_message_stream(
+    session_id: str,
+    body: SendMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_required),
+):
+    """SSE 流式问诊端点。逐 token 输出 LLM 响应。"""
+    import json as _json
+
+    result = await db.execute(
+        select(ConsultationSession).where(
+            ConsultationSession.id == session_id,
+            ConsultationSession.user_id == user.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    messages: list[dict] = _json.loads(session.raw_messages)
+    user_content = body.content
+
+    # 查询活跃技能
+    skill_result = await db.execute(
+        select(SkillPackage).where(SkillPackage.status == "ACTIVE")
+    )
+    skill_rows = skill_result.scalars().all()
+    cred_result = await db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
+    connected_providers = {c.provider for c in cred_result.scalars().all()}
+
+    active_skills = [
+        {
+            "skill_id": s.skill_id,
+            "name": s.name,
+            "description": s.description,
+            "category": s.category,
+            "trigger_examples": _json.loads(s.trigger_examples or "[]"),
+            "confirm_required": s.confirm_required,
+            "tools": _json.loads(s.tools or "[]"),
+        }
+        for s in skill_rows
+        if (
+            s.source_type != "plugin"
+            or _json.loads(s.manifest_json or "{}").get("auth_type", "none") == "none"
+            or _json.loads(s.manifest_json or "{}").get("provider") in connected_providers
+        )
+    ]
+
+    # 注入上下文
+    latest_report_res = await db.execute(
+        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
+    )
+    latest_report = latest_report_res.scalars().first()
+    if latest_report and latest_report.summary:
+        user_content += f"\n[最近检验摘要] {latest_report.summary}"
+
+    latest_vital_res = await db.execute(
+        select(VitalStreamEvent)
+        .where(VitalStreamEvent.user_id == user.id)
+        .order_by(VitalStreamEvent.created_at.desc())
+    )
+    latest_vital = latest_vital_res.scalars().first()
+    if latest_vital:
+        user_content += (
+            f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
+            f"risk={latest_vital.risk_level}"
+        )
+
+    messages.append({"role": "user", "content": user_content})
+
+    # IoT 高风险守卫
+    if latest_vital and latest_vital.risk_level == "high":
+        existing_ticket = await db.execute(
+            select(HandoffTicket)
+            .where(HandoffTicket.session_id == session.id)
+            .where(HandoffTicket.status.in_(["pending", "processing"]))
+            .order_by(HandoffTicket.created_at.desc())
+        )
+        if existing_ticket.scalar_one_or_none() is None:
+            ticket = HandoffTicket(
+                user_id=user.id,
+                session_id=session.id,
+                status="pending",
+                risk_level="high",
+                reason="IoT 高风险生命体征触发人工接管",
+                brief=f"{latest_vital.metric}={latest_vital.value}{latest_vital.unit}",
+                evidence=_json.dumps(
+                    [f"source={latest_vital.source}", f"metric={latest_vital.metric}",
+                     f"value={latest_vital.value}{latest_vital.unit}", f"measured_at={latest_vital.measured_at}"],
+                    ensure_ascii=False,
+                ),
+            )
+            db.add(ticket)
+            session.status = "HUMAN_HANDOFF_PENDING"
+            assistant_content = _build_iot_emergency_message(latest_vital)
+            messages.append({"role": "assistant", "content": assistant_content})
+            session.raw_messages = _json.dumps(messages, ensure_ascii=False)
+            await db.flush()
+            await db.commit()
+
+            async def _early_sse():
+                yield f"event: done\ndata: {_json.dumps({'assistant_message': assistant_content, 'status': session.status, 'red_flag_detected': True, 'structured_state': {}}, ensure_ascii=False)}\n\n"
+            return StreamingResponse(_early_sse(), media_type="text/event-stream")
+
+    # 文本高风险守卫
+    risk_level_val, risk_evidence = evaluate_risk(body.content)
+    if risk_level_val == "high":
+        ticket = HandoffTicket(
+            user_id=user.id, session_id=session.id, status="pending", risk_level="high",
+            reason="命中高危语义规则，触发人工接管", brief=body.content[:400],
+            evidence=_json.dumps(risk_evidence, ensure_ascii=False),
+        )
+        db.add(ticket)
+        session.status = "HUMAN_HANDOFF_PENDING"
+        assistant_content = emergency_reply()
+        messages.append({"role": "assistant", "content": assistant_content})
+        session.raw_messages = _json.dumps(messages, ensure_ascii=False)
+        await db.flush()
+        await db.commit()
+
+        async def _early_sse_risk():
+            yield f"event: done\ndata: {_json.dumps({'assistant_message': assistant_content, 'status': session.status, 'red_flag_detected': True, 'structured_state': {}}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(_early_sse_risk(), media_type="text/event-stream")
+
+    # 药物技能兜底
+    force_skill, extracted_drugs = _should_force_drug_skill(body.content, active_skills)
+    if force_skill:
+        t_start = time.time()
+        result_skill = await _execute_skill(
+            skill_id="drug-interaction", action="query_interactions",
+            params={"drugs": extracted_drugs}, active_skills=active_skills, db=db, user_id=user.id,
+        )
+        latency_ms = int((time.time() - t_start) * 1000)
+        await _record_tool_invocation("drug-interaction", {"drugs": extracted_drugs}, result_skill, latency_ms, active_skills, db)
+        assistant_content = _format_skill_result("drug-interaction", "query_interactions", result_skill, active_skills)
+        messages.append({"role": "assistant", "content": assistant_content})
+        session.raw_messages = _json.dumps(messages, ensure_ascii=False)
+        await db.flush()
+        await db.commit()
+
+        async def _early_sse_drug():
+            yield f"event: done\ndata: {_json.dumps({'assistant_message': assistant_content, 'status': session.status, 'red_flag_detected': False, 'structured_state': {}}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(_early_sse_drug(), media_type="text/event-stream")
+
+    # 挂号预约技能兜底
+    force_reg, reg_params = _should_force_registration_skill(body.content, active_skills)
+    if force_reg:
+        t_start = time.time()
+        result_reg = await _execute_skill(
+            skill_id="appointment-booking", action="query_schedule",
+            params=reg_params, active_skills=active_skills, db=db, user_id=user.id,
+        )
+        latency_ms = int((time.time() - t_start) * 1000)
+        await _record_tool_invocation("appointment-booking", reg_params, result_reg, latency_ms, active_skills, db)
+        assistant_content = _format_skill_result("appointment-booking", "query_schedule", result_reg, active_skills)
+        messages.append({"role": "assistant", "content": assistant_content})
+        session.raw_messages = _json.dumps(messages, ensure_ascii=False)
+        await db.flush()
+        await db.commit()
+
+        async def _early_sse_reg():
+            yield f"event: done\ndata: {_json.dumps({'assistant_message': assistant_content, 'status': session.status, 'red_flag_detected': False, 'structured_state': {}}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(_early_sse_reg(), media_type="text/event-stream")
+
+    # ── 主路径：SSE 流式输出 ──
+    round_count = len([m for m in messages if m["role"] == "user"])
+
+    # Load existing extracted fields for context (e.g., summary continuation)
+    existing_extracted = {}
+    try:
+        existing_extracted = _json.loads(session.extracted_fields or "{}")
+    except Exception:
+        pass
+
+    async def _sse_generator():
+        full_content = ""
+        try:
+            async for event_type, payload in run_consultation_turn_stream(
+                session_id=session_id,
+                messages=messages,
+                current_status=session.status,
+                round_count=round_count,
+                active_skills=active_skills,
+                lang=body.lang,
+                existing_extracted_fields=existing_extracted,
+            ):
+                if event_type == "token":
+                    full_content += payload
+                    yield f"event: token\ndata: {_json.dumps({'content': payload}, ensure_ascii=False)}\n\n"
+                elif event_type == "tool_start":
+                    yield f"event: tool_start\ndata: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+                elif event_type == "tool_end":
+                    yield f"event: tool_end\ndata: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+                elif event_type == "state":
+                    state = payload
+                    # Process legacy skill invocations (fallback)
+                    processed_content = await _process_skill_invocations(
+                        state["latest_assistant_message"], active_skills, db, user.id
+                    )
+                    # Persist
+                    messages.append({"role": "assistant", "content": processed_content})
+                    session.raw_messages = _json.dumps(messages, ensure_ascii=False)
+                    session.status = state["status"]
+                    if state.get("summary_json"):
+                        session.extracted_fields = _json.dumps(state["summary_json"], ensure_ascii=False)
+                        session.triage_level = state["summary_json"].get("triage_level", "observe")
+                        session.summary = state["summary_json"].get("summary_text", "")
+                    await db.flush()
+                    await db.commit()
+
+                    # Flush Langfuse traces
+                    flush_langfuse()
+
+                    done_data = _json.dumps({
+                        "assistant_message": processed_content,
+                        "status": state["status"],
+                        "red_flag_detected": state["red_flag_detected"],
+                        "structured_state": state.get("extracted_fields") or {},
+                        "current_agent": state.get("current_agent", ""),
+                    }, ensure_ascii=False)
+                    yield f"event: done\ndata: {done_data}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {_json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(_sse_generator(), media_type="text/event-stream")
 
 
 @router.get("/{session_id}/summary", response_model=SessionSummaryResponse)

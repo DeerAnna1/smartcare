@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "智愈全程健康助手平台",
-  description: "健康问诊与通用执行双工作区 Agent 平台",
+  description: "健康问诊与通用执行双工作区智能平台",
   icons: {
     icon: "/favicon.svg",
   },

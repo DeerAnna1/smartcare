@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface Session {
   session_id: string;
@@ -14,7 +15,7 @@ interface Session {
   skill_tags?: string[];
 }
 
-const statusLabel: Record<string, string> = {
+const statusLabelZh: Record<string, string> = {
   INIT: "初始化",
   COLLECTING: "采集中",
   FOLLOW_UP: "追问中",
@@ -24,11 +25,28 @@ const statusLabel: Record<string, string> = {
   CLOSED: "已关闭",
 };
 
-const triageLabel: Record<string, string> = {
+const statusLabelEn: Record<string, string> = {
+  INIT: "Initialized",
+  COLLECTING: "Collecting",
+  FOLLOW_UP: "Follow-up",
+  RISK_ESCALATED: "High Risk",
+  SUMMARY_READY: "Summary Ready",
+  EVENT_CARD_READY: "Event Card Generated",
+  CLOSED: "Closed",
+};
+
+const triageLabelZh: Record<string, string> = {
   observe: "居家观察",
   outpatient: "门诊就诊",
   urgent_visit: "急诊就诊",
   emergency: "立即急救",
+};
+
+const triageLabelEn: Record<string, string> = {
+  observe: "Home Observation",
+  outpatient: "Outpatient",
+  urgent_visit: "Urgent Visit",
+  emergency: "Emergency",
 };
 
 const triageColor: Record<string, string> = {
@@ -42,6 +60,7 @@ export default function ChatListPage() {
   const PAGE_SIZE = 10;
   const FAVORITE_KEY = "chat_favorite_sessions";
   const router = useRouter();
+  const { lang } = useLang();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -54,7 +73,7 @@ export default function ChatListPage() {
   const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm("确认删除该问诊记录？此操作不可撤销。")) return;
+    if (!confirm(lang === "en" ? "Delete this consultation? This cannot be undone." : "确认删除该问诊记录？此操作不可撤销。")) return;
     setDeletingId(sessionId);
     try {
       await api.deleteSession(sessionId);
@@ -69,7 +88,7 @@ export default function ChatListPage() {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`确认删除选中的 ${selectedIds.size} 条问诊记录？此操作不可撤销。`)) return;
+    if (!confirm(lang === "en" ? `Delete ${selectedIds.size} selected consultations? This cannot be undone.` : `确认删除选中的 ${selectedIds.size} 条问诊记录？此操作不可撤销。`)) return;
     setBatchDeleting(true);
     try {
       await Promise.all([...selectedIds].map((id) => api.deleteSession(id)));
@@ -117,8 +136,8 @@ export default function ChatListPage() {
     <div className="p-8 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-headline font-bold text-3xl text-on-surface">历史问诊</h1>
-          <p className="text-on-surface-variant text-sm mt-1">查看并继续以往的问诊记录</p>
+          <h1 className="font-headline font-bold text-3xl text-on-surface">{lang === "en" ? "Consultation History" : "历史问诊"}</h1>
+          <p className="text-on-surface-variant text-sm mt-1">{lang === "en" ? "View and continue past consultations" : "查看并继续以往的问诊记录"}</p>
         </div>
       </div>
 
@@ -132,15 +151,17 @@ export default function ChatListPage() {
       ) : sessions.length === 0 ? (
         <div className="text-center py-24 bg-surface-container-lowest rounded-2xl border border-outline-variant/10">
           <span className="material-symbols-outlined text-on-surface-variant text-[48px] block mb-3">chat_bubble_outline</span>
-          <p className="font-semibold text-on-surface">暂无历史问诊</p>
-          <p className="text-sm text-on-surface-variant mt-1 mb-4">开始第一次问诊吧</p>
-          <Link href="/chat/new" className="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-sm inline-block">新建问诊</Link>
+          <p className="font-semibold text-on-surface">{lang === "en" ? "No consultations yet" : "暂无历史问诊"}</p>
+          <p className="text-sm text-on-surface-variant mt-1 mb-4">{lang === "en" ? "Start your first consultation" : "开始第一次问诊吧"}</p>
+          <Link href="/chat/new" className="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-sm inline-block">{lang === "en" ? "New Consultation" : "新建问诊"}</Link>
         </div>
       ) : (
         <>
           <div className="flex items-center gap-2 flex-wrap mb-4">
               {(["all", "active", "done", "favorite"] as const).map((val) => {
-                const labels = { all: "全部", active: "进行中", done: "已完成", favorite: "收藏" };
+                const labels = lang === "en"
+                  ? { all: "All", active: "Active", done: "Done", favorite: "Favorites" }
+                  : { all: "全部", active: "进行中", done: "已完成", favorite: "收藏" };
                 const counts = {
                   all: sessions.length,
                   active: sessions.filter((s) => ["INIT", "COLLECTING", "FOLLOW_UP", "RISK_ESCALATED", "SUMMARY_READY"].includes(s.status)).length,
@@ -177,15 +198,15 @@ export default function ChatListPage() {
               <>
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-3 mb-3 px-4 py-2.5 bg-error-container/20 border border-error/20 rounded-xl">
-              <span className="text-sm font-semibold text-error flex-1">已选 {selectedIds.size} 条</span>
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">取消选择</button>
+              <span className="text-sm font-semibold text-error flex-1">{lang === "en" ? `${selectedIds.size} selected` : `已选 ${selectedIds.size} 条`}</span>
+              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">{lang === "en" ? "Deselect" : "取消选择"}</button>
               <button
                 onClick={() => void handleBatchDelete()}
                 disabled={batchDeleting}
                 className="px-3 py-1.5 bg-error text-on-error rounded-xl text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-[14px]">delete_sweep</span>
-                {batchDeleting ? "删除中..." : `删除 ${selectedIds.size} 条`}
+                {batchDeleting ? (lang === "en" ? "Deleting..." : "删除中...") : (lang === "en" ? `Delete ${selectedIds.size}` : `删除 ${selectedIds.size} 条`)}
               </button>
             </div>
           )}
@@ -203,7 +224,7 @@ export default function ChatListPage() {
                 }}
                 className="rounded"
               />
-              全选当前页
+              {lang === "en" ? "Select all on page" : "全选当前页"}
             </label>
           </div>
           <div className="space-y-3">
@@ -234,11 +255,11 @@ export default function ChatListPage() {
                         {new Date(s.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <span className="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">
-                        {statusLabel[s.status] ?? s.status}
+                        {(lang === "en" ? statusLabelEn : statusLabelZh)[s.status] ?? s.status}
                       </span>
                       {s.triage_level && (
                         <span className={`text-xs font-medium ${triageColor[s.triage_level] ?? "text-on-surface-variant"}`}>
-                          {triageLabel[s.triage_level] ?? s.triage_level}
+                          {(lang === "en" ? triageLabelEn : triageLabelZh)[s.triage_level] ?? s.triage_level}
                         </span>
                       )}
                       {s.skill_tags?.map((tag) => (
@@ -258,7 +279,7 @@ export default function ChatListPage() {
                         ? "text-tertiary bg-tertiary-container/30"
                         : "text-on-surface-variant hover:text-tertiary hover:bg-tertiary-container/20"
                     }`}
-                    title={favoriteIds.has(s.session_id) ? "取消收藏" : "收藏"}
+                    title={favoriteIds.has(s.session_id) ? (lang === "en" ? "Unfavorite" : "取消收藏") : (lang === "en" ? "Favorite" : "收藏")}
                   >
                     <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: favoriteIds.has(s.session_id) ? "'FILL' 1" : "'FILL' 0" }}>
                       star
@@ -268,7 +289,7 @@ export default function ChatListPage() {
                     onClick={(e) => void handleDelete(e, s.session_id)}
                     disabled={deletingId === s.session_id}
                     className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-all disabled:opacity-40"
-                    title="删除"
+                    title={lang === "en" ? "Delete" : "删除"}
                   >
                     <span className="material-symbols-outlined text-[18px]">
                       {deletingId === s.session_id ? "hourglass_empty" : "delete"}
@@ -289,7 +310,7 @@ export default function ChatListPage() {
                 disabled={page === 1}
                 className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
               >
-                上一页
+                {lang === "en" ? "Prev" : "上一页"}
               </button>
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <button
@@ -307,7 +328,7 @@ export default function ChatListPage() {
                 disabled={page === totalPages}
                 className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
               >
-                下一页
+                {lang === "en" ? "Next" : "下一页"}
               </button>
             </div>
           )}

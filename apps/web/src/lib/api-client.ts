@@ -79,7 +79,8 @@ export const api = {
   /** 发送消息（非流式）*/
   async sendMessage(
     sessionId: string,
-    content: string
+    content: string,
+    lang?: string
   ): Promise<{
     status: string;
     assistant_message: string;
@@ -91,11 +92,30 @@ export const api = {
       {
         method: "POST",
         headers: withAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ role: "user", content }),
+        body: JSON.stringify({ role: "user", content, lang }),
       }
     );
     if (!res.ok) throw new Error(`发送消息失败 ${res.status}`);
     return res.json();
+  },
+
+  /** 发送消息（SSE 流式）*/
+  async sendMessageStream(
+    sessionId: string,
+    content: string,
+    lang?: string
+  ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+    const res = await fetch(
+      `${API_BASE}/api/v1/consultations/${sessionId}/messages/stream`,
+      {
+        method: "POST",
+        headers: withAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ role: "user", content, lang }),
+      }
+    );
+    if (!res.ok) throw new Error(`发送消息失败 ${res.status}`);
+    if (!res.body) throw new Error("响应体为空");
+    return res.body.getReader();
   },
 
   /** 获取会话详情（含历史消息）*/

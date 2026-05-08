@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 type LogItem = {
   ts: string;
@@ -11,6 +12,8 @@ type LogItem = {
 };
 
 export default function IotSimulatorPage() {
+  const { lang } = useLang();
+  const t = (zh: string, en: string) => lang === "zh" ? zh : en;
   const [heartRate, setHeartRate] = useState(70);
   const [intervalSec, setIntervalSec] = useState("5");
   const [sending, setSending] = useState(false);
@@ -21,10 +24,10 @@ export default function IotSimulatorPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const riskText = useMemo(() => {
-    if (heartRate >= 120) return "高风险";
-    if (heartRate >= 100) return "中风险";
-    return "正常";
-  }, [heartRate]);
+    if (heartRate >= 120) return t("高风险", "High Risk");
+    if (heartRate >= 100) return t("中风险", "Medium Risk");
+    return t("正常", "Normal");
+  }, [heartRate, lang]);
 
   const appendLog = (item: LogItem) => {
     setLogs((prev) => [item, ...prev].slice(0, 30));
@@ -59,9 +62,9 @@ export default function IotSimulatorPage() {
       appendLog({ ts: new Date().toLocaleTimeString(), req: payload, res });
       await fetchLatestVitals();
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "推送失败";
+      const msg = error instanceof Error ? error.message : t("推送失败", "Push failed");
       appendLog({ ts: new Date().toLocaleTimeString(), req: payload, err: msg });
-      alert(`推送失败：${msg}`);
+      alert(`${t("推送失败", "Push failed")}：${msg}`);
     } finally {
       setSending(false);
     }
@@ -92,17 +95,17 @@ export default function IotSimulatorPage() {
   return (
     <div className="max-w-5xl mx-auto px-8 py-8 space-y-6">
       <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-6">
-        <h1 className="text-2xl font-bold text-on-surface">Web 心率模拟器（替代手机 App）</h1>
+        <h1 className="text-2xl font-bold text-on-surface">{t("Web 心率模拟器（替代手机 App）", "Web Heart Rate Simulator (Mobile App Alternative)")}</h1>
         <p className="text-sm text-on-surface-variant mt-2">
-          直接在浏览器操作，不依赖 Expo/原生打包/ADB。登录同一账号后，点击推送即可让问诊链路实时感知。
+          {t("直接在浏览器操作，不依赖 Expo/原生打包/ADB。登录同一账号后，点击推送即可让问诊链路实时感知。", "Operate directly in the browser without Expo/native build/ADB. After logging in with the same account, click push to let the consultation flow sense in real-time.")}
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-6 space-y-4">
-          <h2 className="font-semibold text-on-surface">心率控制</h2>
+          <h2 className="font-semibold text-on-surface">{t("心率控制", "Heart Rate Control")}</h2>
           <div className="text-4xl font-bold text-error">{heartRate} bpm</div>
-          <div className="text-sm text-on-surface">预测风险：<span className="font-semibold">{riskText}</span></div>
+          <div className="text-sm text-on-surface">{t("预测风险", "Predicted Risk")}：<span className="font-semibold">{riskText}</span></div>
 
           <div className="flex gap-2 flex-wrap">
             <button className="px-4 py-2 rounded-lg bg-surface-container" onClick={() => setHeartRate((v) => Math.max(40, v - 1))}>-1</button>
@@ -112,13 +115,13 @@ export default function IotSimulatorPage() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(70)}>正常 70</button>
-            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(105)}>中风险 105</button>
-            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(128)}>高风险 128</button>
+            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(70)}>{t("正常", "Normal")} 70</button>
+            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(105)}>{t("中风险", "Medium")} 105</button>
+            <button className="px-4 py-2 rounded-lg bg-primary-fixed text-primary" onClick={() => setHeartRate(128)}>{t("高风险", "High")} 128</button>
           </div>
 
           <div>
-            <label className="block text-xs text-on-surface-variant mb-1">连续推送间隔（秒）</label>
+            <label className="block text-xs text-on-surface-variant mb-1">{t("连续推送间隔（秒）", "Continuous Push Interval (sec)")}</label>
             <input
               className="w-full bg-surface-container rounded-lg px-3 py-2"
               value={intervalSec}
@@ -133,29 +136,29 @@ export default function IotSimulatorPage() {
               onClick={() => void sendOnce()}
               disabled={sending}
             >
-              {sending ? "推送中..." : "单次推送"}
+              {sending ? t("推送中...", "Pushing...") : t("单次推送", "Single Push")}
             </button>
             <button
               className="px-4 py-2 rounded-lg bg-secondary text-on-secondary font-semibold"
               onClick={toggleLoop}
             >
-              {looping ? "停止连续推送" : "开始连续推送"}
+              {looping ? t("停止连续推送", "Stop Continuous Push") : t("开始连续推送", "Start Continuous Push")}
             </button>
           </div>
         </div>
 
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-6 space-y-4">
-          <h2 className="font-semibold text-on-surface">后端最新感知</h2>
-          <div className="text-sm text-on-surface">最近指标：<span className="font-semibold">{latestValue}</span></div>
-          <div className="text-sm text-on-surface">最近风险：<span className="font-semibold">{latestRisk}</span></div>
+          <h2 className="font-semibold text-on-surface">{t("后端最新感知", "Latest Backend Status")}</h2>
+          <div className="text-sm text-on-surface">{t("最近指标", "Latest Metric")}：<span className="font-semibold">{latestValue}</span></div>
+          <div className="text-sm text-on-surface">{t("最近风险", "Latest Risk")}：<span className="font-semibold">{latestRisk}</span></div>
           <button className="px-4 py-2 rounded-lg bg-surface-container" onClick={() => void fetchLatestVitals()}>
-            刷新后端状态
+            {t("刷新后端状态", "Refresh Backend Status")}
           </button>
 
           <div className="pt-3 border-t border-outline-variant/15">
-            <h3 className="font-semibold text-on-surface mb-2">最近日志</h3>
+            <h3 className="font-semibold text-on-surface mb-2">{t("最近日志", "Recent Logs")}</h3>
             {logs.length === 0 ? (
-              <div className="text-xs text-on-surface-variant">暂无日志</div>
+              <div className="text-xs text-on-surface-variant">{t("暂无日志", "No logs")}</div>
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
                 {logs.map((item, idx) => (

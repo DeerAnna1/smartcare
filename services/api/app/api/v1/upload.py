@@ -9,12 +9,16 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 from app.api.deps.auth import get_current_user
+from app.core.config import get_settings
 from app.core.database import get_db
-from app.models.models import User
+from app.models.models import User, LabReport
+from app.services.lab_interpreter import parse_lab_text, summarize_lab_items
 
 router = APIRouter(prefix="/upload", tags=["upload"])
+settings = get_settings()
 
 # parents[3] = /app  (mounted volume), so uploads persist across container restarts
 UPLOAD_DIR = Path(__file__).resolve().parents[3] / "uploads"
@@ -25,9 +29,12 @@ ALLOWED_DOCUMENT_TYPES = {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/plain",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
 }
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt"}
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB for documents
@@ -96,6 +103,40 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
         return "", "failed"
 
 
+async def _extract_text_via_ocr_space(content: bytes, filename: str) -> tuple[str, str]:
+    """Use OCR.space API for OCR extraction."""
+    if not settings.OCR_API_KEY:
+        return "", "failed"
+    try:
+        form = {
+            "language": "chs",
+            "isOverlayRequired": "false",
+            "OCREngine": "2",
+            "isTable": "true",
+            "scale": "true",
+        }
+        files = {"file": (filename, content)}
+        headers = {"apikey": settings.OCR_API_KEY}
+        async with httpx.AsyncClient(timeout=40) as client:
+            resp = await client.post(
+                "https://api.ocr.space/parse/image",
+                data=form,
+                files=files,
+                headers=headers,
+            )
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("IsErroredOnProcessing"):
+            return "", "failed"
+        parsed = payload.get("ParsedResults") or []
+        text = "\n".join((x.get("ParsedText") or "").strip() for x in parsed).strip()
+        if not text:
+            return "", "empty"
+        return text[:MAX_EXTRACT_CHARS], "success"
+    except Exception:
+        return "", "failed"
+
+
 @router.post("/document")
 async def upload_document(
     file: UploadFile = File(...),
@@ -108,13 +149,13 @@ async def upload_document(
     if ext not in ALLOWED_DOCUMENT_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文件类型不支持，仅支持 PDF/Word/TXT",
+            detail="文件类型不支持，仅支持 PDF/Word/TXT/图片",
         )
 
     if file.content_type and file.content_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文件内容类型不支持，仅支持 PDF/Word/TXT",
+            detail="文件内容类型不支持，仅支持 PDF/Word/TXT/图片",
         )
 
     content = await file.read()
@@ -135,7 +176,25 @@ async def upload_document(
         with open(filepath, "wb") as f:
             f.write(content)
 
-        extracted_text, extraction_status = _extract_text_from_document(content, ext)
+        # 优先真实 OCR（OCR.space），失败时自动降级到本地解析
+        extracted_text = ""
+        extraction_status = "failed"
+        if settings.OCR_PROVIDER.lower() == "ocr_space" and ext in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+            extracted_text, extraction_status = await _extract_text_via_ocr_space(content, original_name)
+        if extraction_status != "success":
+            extracted_text, extraction_status = _extract_text_from_document(content, ext)
+        structured_items = parse_lab_text(extracted_text) if extracted_text else []
+        summary = summarize_lab_items(structured_items) if structured_items else ""
+        report = LabReport(
+            user_id=current_user.id,
+            filename=filename,
+            source_url=f"/api/v1/upload/document/{filename}",
+            raw_text=extracted_text,
+            structured_items=json.dumps(structured_items, ensure_ascii=False),
+            summary=summary,
+        )
+        db.add(report)
+        await db.flush()
 
         return {
             "status": "success",
@@ -145,6 +204,9 @@ async def upload_document(
             "type": file.content_type,
             "extracted_text": extracted_text,
             "extraction_status": extraction_status,
+            "report_id": report.id,
+            "lab_summary": summary,
+            "lab_items": structured_items,
         }
 
     except Exception as e:
@@ -212,7 +274,6 @@ async def upload_avatar(
         prefs = _safe_json_loads(current_user.preferences)
         prefs["avatar_url"] = f"/api/v1/upload/avatar/{current_user.id}/{filename}"
         current_user.preferences = json.dumps(prefs, ensure_ascii=False)
-        current_user.updated_at = datetime.now(timezone.utc)
 
         await db.flush()
         await db.commit()

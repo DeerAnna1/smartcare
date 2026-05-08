@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface EventSummary {
   event_id: string;
@@ -28,6 +29,7 @@ interface Task {
 function ExecutionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { lang } = useLang();
   const eventId = searchParams.get("eventId");
 
   const PAGE_SIZE = 10;
@@ -122,7 +124,7 @@ function ExecutionContent() {
         )
       );
       setExecutingTaskId(null);
-      alert("标记任务失败，请重试");
+      alert(t("标记任务失败，请重试", "Failed to mark task, please retry"));
     }
   };
 
@@ -135,7 +137,7 @@ function ExecutionContent() {
       await api.archiveEvent(eid);
       setEvents((prev) => prev.map((e) => e.event_id === eid ? { ...e, archived: true } : e));
     } catch {
-      alert("归档失败，请重试");
+      alert(t("归档失败，请重试", "Archive failed, please retry"));
     } finally {
       setArchivingId(null);
     }
@@ -175,21 +177,22 @@ function ExecutionContent() {
       setExecuting(false);
     } catch (error) {
       setExecuting(false);
-      alert("执行失败，请重试");
+      alert(t("执行失败，请重试", "Execution failed, please retry"));
     }
   };
 
+  const t = (zh: string, en: string) => lang === "en" ? en : zh;
+
   if (!eventId) {
-    const triageLabelMap: Record<string, string> = {
-      observe: "居家观察",
-      outpatient: "门诊就诊",
-      urgent_visit: "急诊就诊",
-      emergency: "立即急救",
+    const triageLabelMap: Record<string, string> = lang === "en" ? {
+      observe: "Home Observation", outpatient: "Outpatient", urgent_visit: "Urgent Visit", emergency: "Emergency",
+    } : {
+      observe: "居家观察", outpatient: "门诊就诊", urgent_visit: "急诊就诊", emergency: "立即急救",
     };
-    const statusLabelMap: Record<string, string> = {
-      CREATED: "已创建",
-      CONFIRMED: "已确认",
-      EXECUTED: "已执行",
+    const statusLabelMap: Record<string, string> = lang === "en" ? {
+      CREATED: "Created", CONFIRMED: "Confirmed", EXECUTED: "Executed",
+    } : {
+      CREATED: "已创建", CONFIRMED: "已确认", EXECUTED: "已执行",
     };
     const filteredEvents = events.filter((e) => {
       if (filter === "pending") return e.status !== "EXECUTED";
@@ -203,12 +206,12 @@ function ExecutionContent() {
       <div className="p-8 space-y-6">
         <div className="bg-primary-fixed/30 border-l-4 border-primary rounded-r-xl px-6 py-3 flex items-center justify-between">
           <div>
-            <h1 className="font-headline font-bold text-xl text-on-surface">通用执行</h1>
-            <p className="text-on-surface-variant text-sm">点击任意事件查看执行详情与任务清单</p>
+            <h1 className="font-headline font-bold text-xl text-on-surface">{t("通用执行", "Execution")}</h1>
+            <p className="text-on-surface-variant text-sm">{t("点击任意事件查看执行详情与任务清单", "Click any event to view execution details and task list")}</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="flex h-2 w-2 rounded-full bg-secondary"></span>
-            <span className="text-xs font-semibold text-secondary">系统运行中</span>
+            <span className="text-xs font-semibold text-secondary">{t("系统运行中", "System Running")}</span>
           </div>
         </div>
 
@@ -216,7 +219,7 @@ function ExecutionContent() {
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {(["all", "pending", "done"] as const).map((val) => {
-                const labels = { all: "全部", pending: "未完成", done: "已完成" };
+                const labels = lang === "en" ? { all: "All", pending: "Pending", done: "Done" } : { all: "全部", pending: "未完成", done: "已完成" };
                 const counts = {
                   all: events.length,
                   pending: events.filter((e) => e.status !== "EXECUTED").length,
@@ -239,15 +242,15 @@ function ExecutionContent() {
               })}
             </div>
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary-container/40 text-primary">
-              共 {filteredEvents.length} 条
+              {t(`共 ${filteredEvents.length} 条`, `${filteredEvents.length} items`)}
             </span>
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-on-surface-variant">加载中...</div>
+            <div className="py-12 text-center text-on-surface-variant">{t("加载中...", "Loading...")}</div>
           ) : filteredEvents.length === 0 ? (
             <div className="py-12 text-center text-on-surface-variant">
-              {filter === "pending" ? "暂无未完成事件" : filter === "done" ? "暂无已完成事件" : "暂无健康事件"}
+              {filter === "pending" ? t("暂无未完成事件", "No pending events") : filter === "done" ? t("暂无已完成事件", "No completed events") : t("暂无健康事件", "No health events")}
             </div>
           ) : (
             <>
@@ -266,7 +269,7 @@ function ExecutionContent() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-on-surface truncate">{event.chief_complaint || "健康事件"}</p>
+                            <p className="font-semibold text-on-surface truncate">{event.chief_complaint || t("健康事件", "Health Event")}</p>
                             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                               event.status === "EXECUTED"
                                 ? "bg-secondary-container/40 text-secondary"
@@ -277,7 +280,7 @@ function ExecutionContent() {
                               {statusLabelMap[event.status] ?? event.status}
                             </span>
                             {event.archived && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-tertiary-container/40 text-tertiary">已归档</span>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-tertiary-container/40 text-tertiary">{t("已归档", "Archived")}</span>
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-on-surface-variant flex-wrap">
@@ -293,7 +296,7 @@ function ExecutionContent() {
                           disabled={Boolean(event.archived) || isArchiving}
                           className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 bg-primary text-on-primary hover:opacity-80"
                         >
-                          {event.archived ? "已归档" : isArchiving ? "归档中..." : "归档到档案"}
+                          {event.archived ? t("已归档", "Archived") : isArchiving ? t("归档中...", "Archiving...") : t("归档到档案", "Archive")}
                         </button>
                         <span className="material-symbols-outlined text-on-surface-variant text-[18px]">chevron_right</span>
                       </div>
@@ -308,7 +311,7 @@ function ExecutionContent() {
                     disabled={page === 1}
                     className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
                   >
-                    上一页
+                    {t("上一页", "Prev")}
                   </button>
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                     <button
@@ -326,7 +329,7 @@ function ExecutionContent() {
                     disabled={page === totalPages}
                     className="px-3 py-1.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-all disabled:opacity-40"
                   >
-                    下一页
+                    {t("下一页", "Next")}
                   </button>
                 </div>
               )}
@@ -345,19 +348,19 @@ function ExecutionContent() {
         className="flex items-center gap-1.5 mb-4 text-sm font-medium text-on-surface-variant hover:text-primary transition-colors"
       >
         <span className="material-symbols-outlined text-[18px]">arrow_back</span>
-        返回列表
+        {t("返回列表", "Back to list")}
       </button>
 
       {/* 执行区域指示条 */}
       <div className="bg-primary-fixed/30 border-l-4 border-primary rounded-r-xl px-6 py-3 mb-6 flex items-center justify-between">
         <div>
-          <p className="text-xs font-bold text-primary uppercase tracking-widest">执行区域</p>
-          <h1 className="font-headline font-bold text-xl text-on-surface mt-0.5">执行控制台</h1>
-          <p className="text-on-surface-variant text-sm">基于诊断事件 {eventId.slice(0, 8)}... 的执行任务</p>
+          <p className="text-xs font-bold text-primary uppercase tracking-widest">{t("执行区域", "EXECUTION")}</p>
+          <h1 className="font-headline font-bold text-xl text-on-surface mt-0.5">{t("执行控制台", "Execution Console")}</h1>
+          <p className="text-on-surface-variant text-sm">{t(`基于诊断事件 ${eventId.slice(0, 8)}... 的执行任务`, `Tasks for event ${eventId.slice(0, 8)}...`)}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="flex h-2 w-2 rounded-full bg-secondary"></span>
-          <span className="text-xs font-semibold text-secondary">系统运行中</span>
+          <span className="text-xs font-semibold text-secondary">{t("系统运行中", "System Running")}</span>
         </div>
       </div>
 
@@ -366,13 +369,13 @@ function ExecutionContent() {
         <div className="col-span-8 space-y-6">
           <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-headline font-bold text-on-surface">任务清单</h2>
+              <h2 className="font-headline font-bold text-on-surface">{t("任务清单", "Task List")}</h2>
               <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
                 completedCount === tasks.length && tasks.length > 0
                   ? "bg-secondary-container/40 text-secondary"
                   : "bg-primary-container/40 text-primary"
               }`}>
-                {completedCount}/{tasks.length} 已完成
+                {completedCount}/{tasks.length} {t("已完成", "Done")}
               </span>
             </div>
             {loading ? (
@@ -383,12 +386,12 @@ function ExecutionContent() {
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse delay-75"></div>
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse delay-150"></div>
                   </div>
-                  <p className="text-sm text-on-surface-variant">加载任务中...</p>
+                  <p className="text-sm text-on-surface-variant">{t("加载任务中...", "Loading tasks...")}</p>
                 </div>
               </div>
             ) : tasks.length === 0 ? (
               <div className="flex items-center justify-center py-12">
-                <p className="text-on-surface-variant">暂无任务</p>
+                <p className="text-on-surface-variant">{t("暂无任务", "No tasks")}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -430,7 +433,7 @@ function ExecutionContent() {
                         </p>
                         {task.priority === "high" && (
                           <span className="px-2 py-1 bg-error-container/40 text-error rounded-full text-xs font-bold">
-                            高优先级
+                            {t("高优先级", "High Priority")}
                           </span>
                         )}
                       </div>
@@ -448,9 +451,9 @@ function ExecutionContent() {
                           task.type === "record" ? "bg-primary-container/40 text-primary" :
                           "bg-surface-container/40 text-on-surface-variant"
                         }`}>
-                          {task.type === "medication" ? "用药" : 
-                           task.type === "followup" ? "随访" :
-                           task.type === "record" ? "档案" : "护理"}
+                          {task.type === "medication" ? t("用药", "Medication") :
+                           task.type === "followup" ? t("随访", "Follow-up") :
+                           task.type === "record" ? t("档案", "Record") : t("护理", "Care")}
                         </span>
                       </div>
                     </div>
@@ -462,9 +465,9 @@ function ExecutionContent() {
 
           {/* 执行进度 */}
           <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
-            <h2 className="font-headline font-bold text-on-surface mb-4">执行进度</h2>
+            <h2 className="font-headline font-bold text-on-surface mb-4">{t("执行进度", "Execution Progress")}</h2>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-on-surface-variant">完成度</span>
+              <span className="text-sm text-on-surface-variant">{t("完成度", "Progress")}</span>
               <span className="text-sm font-semibold text-primary">
                 {tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0}%
               </span>
@@ -476,7 +479,7 @@ function ExecutionContent() {
               ></div>
             </div>
             <p className="text-xs text-on-surface-variant mt-3">
-              {executing ? "正在执行任务..." : executed ? "所有任务已执行完成" : `已完成 ${completedCount}/${tasks.length} 项任务`}
+              {executing ? t("正在执行任务...", "Executing tasks...") : executed ? t("所有任务已执行完成", "All tasks completed") : t(`已完成 ${completedCount}/${tasks.length} 项任务`, `Completed ${completedCount}/${tasks.length} tasks`)}
             </p>
           </div>
         </div>
@@ -484,15 +487,15 @@ function ExecutionContent() {
         {/* 右侧：操作区 */}
         <div className="col-span-4 space-y-4">
           <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
-            <h2 className="font-headline font-bold text-on-surface mb-4">快速操作</h2>
+            <h2 className="font-headline font-bold text-on-surface mb-4">{t("快速操作", "Quick Actions")}</h2>
             <div className="space-y-3">
-              <button 
+              <button
                 onClick={() => router.push(`/event-confirm/${eventId}`)}
                 className="w-full py-3 px-4 bg-surface-container text-on-surface rounded-xl font-semibold hover:bg-surface-container-high transition-all"
               >
-                返回事件卡
+                {t("返回事件卡", "Back to Event Card")}
               </button>
-              <button 
+              <button
                 onClick={handleExecute}
                 disabled={executing || executed}
                 className={`w-full py-3 px-4 rounded-xl font-semibold transition-all ${
@@ -501,25 +504,25 @@ function ExecutionContent() {
                   "bg-primary text-on-primary hover:opacity-90 cursor-pointer"
                 }`}
               >
-                {executing ? "执行中..." : executed ? "已执行完成" : "执行所有任务"}
+                {executing ? t("执行中...", "Executing...") : executed ? t("已执行完成", "Completed") : t("执行所有任务", "Execute All Tasks")}
               </button>
             </div>
           </div>
 
           <div className="bg-primary-fixed/30 rounded-2xl p-6 border border-primary/20">
-            <p className="text-xs font-bold text-primary uppercase tracking-widest">系统状态</p>
-            <p className="text-sm text-on-surface mt-2">所有任务已就绪，等待用户触发执行</p>
+            <p className="text-xs font-bold text-primary uppercase tracking-widest">{t("系统状态", "SYSTEM STATUS")}</p>
+            <p className="text-sm text-on-surface mt-2">{t("所有任务已就绪，等待用户触发执行", "All tasks ready, awaiting user execution")}</p>
           </div>
 
           <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
-            <p className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">继续诊断</p>
-            <p className="text-sm text-on-surface mt-2">需要回到原始问诊会话补充信息时，可直接返回继续 AI 诊断。</p>
+            <p className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">{t("继续诊断", "CONTINUE DIAGNOSIS")}</p>
+            <p className="text-sm text-on-surface mt-2">{t("需要回到原始问诊会话补充信息时，可直接返回继续 AI 诊断。", "Return to the original consultation session to continue AI diagnosis.")}</p>
             <button
               onClick={() => currentEvent?.source_session_id && router.push(`/chat/${currentEvent.source_session_id}`)}
               disabled={!currentEvent?.source_session_id}
               className="mt-4 w-full py-3 px-4 rounded-xl bg-primary text-on-primary font-semibold hover:opacity-90 transition-all disabled:opacity-50"
             >
-              返回继续 AI 诊断
+              {t("返回继续 AI 诊断", "Continue AI Diagnosis")}
             </button>
           </div>
         </div>
@@ -530,7 +533,7 @@ function ExecutionContent() {
 
 export default function ExecutionPage() {
   return (
-    <Suspense fallback={<div className="p-8">加载中...</div>}>
+    <Suspense fallback={<div className="p-8">Loading...</div>}>
       <ExecutionContent />
     </Suspense>
   );

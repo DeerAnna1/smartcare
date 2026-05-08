@@ -6,12 +6,16 @@ from app.core.config import get_settings
 from app.core.database import engine, Base
 from app.api.v1 import api_router
 from app.jobs.proactive_intervention import run_once as run_proactive_once
+from app.core.observability import init_langfuse, flush_langfuse
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Langfuse observability
+    init_langfuse()
+
     # 当前仓库仍保留历史自动建表能力，用于开发环境快速启动。
     # 生产/正式环境应优先使用 Alembic 管理 schema。
     if settings.should_auto_create_tables:
@@ -31,6 +35,8 @@ async def lifespan(app: FastAPI):
     yield
     if proactive_task:
         proactive_task.cancel()
+    # Flush Langfuse events before shutdown
+    flush_langfuse()
     await engine.dispose()
 
 
