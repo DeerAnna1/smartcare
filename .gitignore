@@ -35,19 +35,11 @@ yarn-error.log*
 *.pfx
 *.key
 
-# ─── Docker ──────────────────────────────────────────────────────────────────
+# ─── Docker / 本地大包（勿提交）──────────────────────────────────────────────
 web.zip
 Heartbeat.zip
 
 # ─── Runtime data ────────────────────────────────────────────────────────────
 services/api/uploads/
-
-# ─── Android Studio / APK 产物 ───────────────────────────────────────────────
-**/local.properties
-**/.cxx/
-**/build/
-*.apk
-*.aab
-Heartbeat-AndroidNative/app/release/
 
 prd.md

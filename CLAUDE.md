@@ -16,7 +16,6 @@ This is a multi-project repo (not a monorepo). Each component has its own packag
 apps/web/                    → Next.js 16 frontend (npm)
 services/api/                → FastAPI backend (pip/venv)
 infra/docker/                → Docker Compose orchestration
-Heartbeat-AndroidNative/     → Android heart-rate simulator (Gradle/Kotlin)
 stitch_healthloop_agent/     → Design reference / prototype HTML screens
 ```
 
