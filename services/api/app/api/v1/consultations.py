@@ -5,12 +5,13 @@ import re
 import time
 import uuid
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.models import (
     ConsultationSession,
     AuditLog,
@@ -47,6 +48,32 @@ PRODUCT_NAME_ALIASES: dict[str, str] = {
     "三九感冒灵": "999感冒灵",
     "感冒灵颗粒": "感冒灵颗粒",
     "健胃消食片": "健胃消食片",
+    "连花清瘟": "连花清瘟",
+    "连花清瘟胶囊": "连花清瘟",
+    "板蓝根": "板蓝根",
+    "板蓝根颗粒": "板蓝根",
+    "复方甘草片": "复方甘草片",
+    "甘草片": "复方甘草片",
+    "藿香正气水": "藿香正气水",
+    "藿香正气液": "藿香正气水",
+    "六味地黄丸": "六味地黄丸",
+    "牛黄解毒片": "牛黄解毒片",
+    "云南白药": "云南白药",
+    "双黄连": "双黄连",
+    "双黄连口服液": "双黄连",
+    "蒲地蓝": "蒲地蓝",
+    "蒲地蓝消炎口服液": "蒲地蓝",
+    "开瑞坦": "氯雷他定",
+    "氯雷他定": "氯雷他定",
+    "西替利嗪": "西替利嗪",
+    "达喜": "铝碳酸镁",
+    "铝碳酸镁": "铝碳酸镁",
+    "吗丁啉": "多潘立酮",
+    "芬必得": "布洛芬",
+    "泰诺": "对乙酰氨基酚",
+    "感康": "感康",
+    "白加黑": "白加黑",
+    "新康泰克": "新康泰克",
 }
 
 
@@ -149,16 +176,16 @@ def _should_force_drug_skill(user_text: str, active_skills: list[dict]) -> tuple
     """
     当用户明显在问'两药能否同用/相互作用'时，兜底强制触发药物相互作用技能。
     目的：避免 LLM 漏输出 invoke 块导致技能未调用。
+    不依赖 active_skills 中是否注册了 drug-interaction，直接可用。
     """
-    if not any(s.get("skill_id") == "drug-interaction" for s in active_skills):
-        return False, []
-
     text = (user_text or "").lower()
     intent_patterns = [
         r"相互作用", r"能一起", r"可以一起", r"一起用", r"同时用", r"同用",
         r"合用", r"冲突", r"配伍", r"能不能", r"可以吗",
-        r"一起吃", r"同时在吃", r"同吃", r"同服", r"并用", r"联用",
+        r"一起吃", r"同时在吃", r"同时吃", r"同吃", r"同服", r"并用", r"联用",
         r"有没有问题", r"有问题吗", r"是否安全", r"安全吗",
+        r"间隔.*吃", r"先后.*吃", r"影响.*效果", r"降低.*疗效",
+        r"可以.*同时", r"能.*同时", r"一起.*服用", r"同时.*服用",
     ]
     has_intent = any(re.search(p, text) for p in intent_patterns)
     drugs = _extract_drug_names_from_text(user_text)
@@ -481,9 +508,12 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    raw: list[dict] = json.loads(session.raw_messages)
+    raw: list[dict] = json.loads(session.raw_messages or "[]")
     # 判断是否检测过红旗（extracted_fields 中类型字段）
-    extracted = json.loads(session.extracted_fields)
+    try:
+        extracted = json.loads(session.extracted_fields or "{}")
+    except (json.JSONDecodeError, TypeError):
+        extracted = {}
     red_flag = bool(extracted.get("red_flags"))
 
     return SessionDetailResponse(
@@ -495,7 +525,9 @@ async def get_session(
 
 
 @router.post("/{session_id}/messages", response_model=SessionMessageResponse)
+@limiter.limit("20/minute")
 async def send_message(
+    request: Request,
     session_id: str,
     body: SendMessageRequest,
     db: AsyncSession = Depends(get_db),
@@ -514,12 +546,21 @@ async def send_message(
     messages: list[dict] = json.loads(session.raw_messages)
     user_content = body.content
 
-    # 查询活跃技能注入上下文
-    skill_result = await db.execute(
-        select(SkillPackage).where(SkillPackage.status == "ACTIVE")
+    # 并行查询：活跃技能、用户凭证、最近检验、最近体征
+    skill_q = db.execute(select(SkillPackage).where(SkillPackage.status == "ACTIVE"))
+    cred_q = db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
+    report_q = db.execute(
+        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
+    )
+    vital_q = db.execute(
+        select(VitalStreamEvent)
+        .where(VitalStreamEvent.user_id == user.id)
+        .order_by(VitalStreamEvent.created_at.desc())
+    )
+    skill_result, cred_result, latest_report_res, latest_vital_res = await asyncio.gather(
+        skill_q, cred_q, report_q, vital_q
     )
     skill_rows = skill_result.scalars().all()
-    cred_result = await db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
     connected_providers = {c.provider for c in cred_result.scalars().all()}
 
     active_skills = [
@@ -540,18 +581,10 @@ async def send_message(
         )
     ]
     # 注入 OCR 和 IoT 的最近上下文，帮助问诊推理
-    latest_report_res = await db.execute(
-        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
-    )
     latest_report = latest_report_res.scalars().first()
     if latest_report and latest_report.summary:
         user_content += f"\n[最近检验摘要] {latest_report.summary}"
 
-    latest_vital_res = await db.execute(
-        select(VitalStreamEvent)
-        .where(VitalStreamEvent.user_id == user.id)
-        .order_by(VitalStreamEvent.created_at.desc())
-    )
     latest_vital = latest_vital_res.scalars().first()
     if latest_vital:
         user_content += (
@@ -747,6 +780,14 @@ async def send_message(
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="AI 响应超时，请重试")
+    except Exception as e:
+        err_name = e.__class__.__name__
+        if "Authentication" in err_name or "401" in str(e):
+            raise HTTPException(status_code=502, detail="AI 服务认证失败，请检查 OPENAI_API_KEY 配置")
+        if "RateLimit" in err_name or "429" in str(e):
+            raise HTTPException(status_code=429, detail="AI 服务请求过于频繁，请稍后重试")
+        logger.exception(f"问诊处理失败: {e}")
+        raise HTTPException(status_code=502, detail=f"AI 服务异常：{str(e)[:200]}")
 
     # Append AI reply — 先处理技能调用块，替换为真实执行结果
     assistant_content = state["latest_assistant_message"]
@@ -776,7 +817,9 @@ async def send_message(
 
 
 @router.post("/{session_id}/messages/stream")
+@limiter.limit("20/minute")
 async def send_message_stream(
+    request: Request,
     session_id: str,
     body: SendMessageRequest,
     db: AsyncSession = Depends(get_db),
@@ -798,12 +841,21 @@ async def send_message_stream(
     messages: list[dict] = _json.loads(session.raw_messages)
     user_content = body.content
 
-    # 查询活跃技能
-    skill_result = await db.execute(
-        select(SkillPackage).where(SkillPackage.status == "ACTIVE")
+    # 并行查询：活跃技能、用户凭证、最近检验、最近体征
+    skill_q = db.execute(select(SkillPackage).where(SkillPackage.status == "ACTIVE"))
+    cred_q = db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
+    report_q = db.execute(
+        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
+    )
+    vital_q = db.execute(
+        select(VitalStreamEvent)
+        .where(VitalStreamEvent.user_id == user.id)
+        .order_by(VitalStreamEvent.created_at.desc())
+    )
+    skill_result, cred_result, latest_report_res, latest_vital_res = await asyncio.gather(
+        skill_q, cred_q, report_q, vital_q
     )
     skill_rows = skill_result.scalars().all()
-    cred_result = await db.execute(select(UserOAuthCredential).where(UserOAuthCredential.user_id == user.id))
     connected_providers = {c.provider for c in cred_result.scalars().all()}
 
     active_skills = [
@@ -825,18 +877,10 @@ async def send_message_stream(
     ]
 
     # 注入上下文
-    latest_report_res = await db.execute(
-        select(LabReport).where(LabReport.user_id == user.id).order_by(LabReport.created_at.desc())
-    )
     latest_report = latest_report_res.scalars().first()
     if latest_report and latest_report.summary:
         user_content += f"\n[最近检验摘要] {latest_report.summary}"
 
-    latest_vital_res = await db.execute(
-        select(VitalStreamEvent)
-        .where(VitalStreamEvent.user_id == user.id)
-        .order_by(VitalStreamEvent.created_at.desc())
-    )
     latest_vital = latest_vital_res.scalars().first()
     if latest_vital:
         user_content += (
@@ -1019,7 +1063,10 @@ async def get_summary(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    extracted = json.loads(session.extracted_fields)
+    try:
+        extracted = json.loads(session.extracted_fields or "{}")
+    except (json.JSONDecodeError, TypeError):
+        extracted = {}
     ready = session.status in ("SUMMARY_READY", "EVENT_CARD_READY")
 
     return SessionSummaryResponse(

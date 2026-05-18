@@ -4,6 +4,7 @@ LangGraph 健康问诊 Agent 状态机 — 多 Agent 版本
 状态: INIT → COLLECTING → FOLLOW_UP → RISK_ESCALATED → SUMMARY_READY → EVENT_CARD_READY → CLOSED
 """
 from __future__ import annotations
+import asyncio
 import json
 import re
 import logging
@@ -16,6 +17,12 @@ from app.core.config import get_settings
 from app.core.observability import observe_agent
 from app.orchestrators.agents import get_agent_prompt, get_agent_config, select_next_agent
 from app.services.tool_registry import build_openai_tools, execute_tool_call
+from app.services.context_manager import (
+    trim_messages_to_budget,
+    build_conversation_summary,
+    count_message_tokens,
+)
+from app.schemas.llm_output import validate_and_clean_summary
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -216,7 +223,10 @@ def get_llm(
     max_tokens: int = 1200,
     tools: list[dict] | None = None,
 ) -> ChatOpenAI:
-    """Create a ChatOpenAI instance with optional tool binding."""
+    """Create a ChatOpenAI instance with optional tool binding.
+
+    重试由外层 tenacity 包装统一处理，这里关闭 SDK 自带 retry 避免叠加。
+    """
     llm = ChatOpenAI(
         model=settings.LLM_MODEL,
         temperature=temperature or settings.LLM_TEMPERATURE,
@@ -224,7 +234,7 @@ def get_llm(
         openai_api_base=settings.OPENAI_BASE_URL,
         streaming=True,
         max_tokens=max_tokens,
-        timeout=30,
+        timeout=settings.LLM_REQUEST_TIMEOUT,
         max_retries=0,
     )
     if tools:
@@ -294,14 +304,27 @@ def _build_agent_system_message(agent_key: str, state: ConsultationState, rag_co
 
     # Get agent-specific prompt with variable substitution
     extracted_str = json.dumps(state.get("extracted_fields", {}), ensure_ascii=False, indent=2)
+
+    # 用 context_manager 构建摘要：最近 10 条截取 200 字 + 历史摘要
+    recent_msgs = state["messages"][-10:]
     conversation_summary = "\n".join(
-        f"{m.__class__.__name__.replace('Message','')}: {m.content[:200]}"
-        for m in state["messages"][-10:]
+        f"{m.__class__.__name__.replace('Message','')}: {str(m.content)[:200]}"
+        for m in recent_msgs
     )
-    full_conversation = "\n".join(
-        f"{m.__class__.__name__.replace('Message','')}: {m.content}"
-        for m in state["messages"]
-    )
+
+    # 对较长的对话，用滑动窗口摘要替代完整重放
+    all_msgs = state["messages"]
+    if len(all_msgs) > 12:
+        history_summary = build_conversation_summary(all_msgs, max_chars=1500)
+        full_conversation = f"[历史摘要]\n{history_summary}\n\n[最近对话]\n" + "\n".join(
+            f"{m.__class__.__name__.replace('Message','')}: {str(m.content)}"
+            for m in all_msgs[-6:]
+        )
+    else:
+        full_conversation = "\n".join(
+            f"{m.__class__.__name__.replace('Message','')}: {str(m.content)}"
+            for m in all_msgs
+        )
 
     agent_prompt = get_agent_prompt(
         agent_key, lang,
@@ -336,8 +359,8 @@ def _build_agent_system_message(agent_key: str, state: ConsultationState, rag_co
     return SystemMessage(content=agent_prompt + date_hint + constraints + rag_block + skills_block)
 
 
-def _get_rag_context(messages: list[BaseMessage]) -> str:
-    """Retrieve RAG context from the last user message."""
+def _get_rag_context_sync(messages: list[BaseMessage]) -> str:
+    """Retrieve RAG context from the last user message (blocking)."""
     try:
         from app.services.rag_retriever import retrieve
         user_msgs = [m for m in messages if isinstance(m, HumanMessage)]
@@ -346,6 +369,17 @@ def _get_rag_context(messages: list[BaseMessage]) -> str:
     except Exception:
         pass
     return ""
+
+
+async def _get_rag_context(messages: list[BaseMessage]) -> str:
+    """Retrieve RAG context with timeout to avoid blocking on model download."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_get_rag_context_sync, messages),
+            timeout=5.0,
+        )
+    except (asyncio.TimeoutError, Exception):
+        return ""
 
 
 async def _handle_tool_calls(
@@ -383,7 +417,11 @@ async def _handle_tool_calls(
             )
 
         # Re-invoke LLM with tool results
-        response = await llm_with_tools.ainvoke([system_msg] + current_messages)
+        from app.core.retry import llm_retry
+
+        async for attempt in llm_retry():
+            with attempt:
+                response = await llm_with_tools.ainvoke([system_msg] + current_messages)
         content = response.content or ""
 
     return content, current_messages
@@ -457,8 +495,18 @@ async def _run_agent_with_tools(
     tools = build_openai_tools(state.get("active_skills"))
     llm = get_llm(temperature=temperature, max_tokens=max_tokens, tools=tools if tools else None)
 
-    messages_with_system = [system_msg] + list(state["messages"])
-    response = await llm.ainvoke(messages_with_system)
+    # Token 级裁剪：将消息裁剪到预算内，避免超出上下文窗口
+    trimmed_messages = trim_messages_to_budget(list(state["messages"]))
+    messages_with_system = [system_msg] + trimmed_messages
+
+    token_count = count_message_tokens(trimmed_messages)
+    if token_count > settings.MEMORY_TOKEN_BUDGET:
+        logger.info(f"消息裁剪: {len(state['messages'])} → {len(trimmed_messages)} 条, ~{token_count} tokens")
+    from app.core.retry import llm_retry
+
+    async for attempt in llm_retry():
+        with attempt:
+            response = await llm.ainvoke(messages_with_system)
     content: str = response.content or ""
 
     if hasattr(response, "tool_calls") and response.tool_calls:
@@ -473,7 +521,7 @@ async def _run_agent_with_tools(
 async def triage_node(state: ConsultationState) -> ConsultationState:
     """Initial triage: assess chief complaint, detect emergencies, suggest department."""
     lang = state.get("lang") or "zh"
-    rag_context = _get_rag_context(state["messages"])
+    rag_context = await _get_rag_context(state["messages"])
     system_msg = _build_agent_system_message("triage", state, rag_context, lang)
 
     config = get_agent_config("triage")
@@ -501,7 +549,7 @@ async def triage_node(state: ConsultationState) -> ConsultationState:
 async def symptom_collector_node(state: ConsultationState) -> ConsultationState:
     """Collect symptom details through targeted follow-up questions."""
     lang = state.get("lang") or "zh"
-    rag_context = _get_rag_context(state["messages"])
+    rag_context = await _get_rag_context(state["messages"])
     system_msg = _build_agent_system_message("collector", state, rag_context, lang)
 
     config = get_agent_config("collector")
@@ -534,7 +582,7 @@ async def symptom_collector_node(state: ConsultationState) -> ConsultationState:
 async def risk_assessor_node(state: ConsultationState) -> ConsultationState:
     """Evaluate risk level based on collected symptoms."""
     lang = state.get("lang") or "zh"
-    rag_context = _get_rag_context(state["messages"])
+    rag_context = await _get_rag_context(state["messages"])
     system_msg = _build_agent_system_message("risk", state, rag_context, lang)
 
     config = get_agent_config("risk")
@@ -565,8 +613,14 @@ async def summary_generator_node(state: ConsultationState) -> ConsultationState:
     agent_config = get_agent_config("summary")
     llm = get_llm(temperature=agent_config["temperature"], max_tokens=agent_config["max_tokens"])
 
-    messages_with_system = [system_msg] + list(state["messages"])
-    response = await llm.ainvoke(messages_with_system)
+    # Token 级裁剪：长对话避免超出上下文窗口
+    trimmed_messages = trim_messages_to_budget(list(state["messages"]))
+    messages_with_system = [system_msg] + trimmed_messages
+    from app.core.retry import llm_retry
+
+    async for attempt in llm_retry():
+        with attempt:
+            response = await llm.ainvoke(messages_with_system)
     content: str = response.content or ""
 
     summary_json: dict | None = None
@@ -574,8 +628,26 @@ async def summary_generator_node(state: ConsultationState) -> ConsultationState:
     parsed = _extract_summary_json(content)
     min_rounds = 2 if state.get("user_requested_summary") else 3
     if parsed and state["round_count"] >= min_rounds:
-        summary_json = parsed
-        new_status = "SUMMARY_READY"
+        # Pydantic 校验 LLM 输出
+        validated = validate_and_clean_summary(parsed)
+        if validated:
+            summary_json = validated
+            new_status = "SUMMARY_READY"
+        else:
+            logger.warning(f"Summary JSON 校验失败，原始输出: {str(parsed)[:300]}")
+            # 校验失败但有原始数据，保留所有字段并补全必需默认值
+            summary_json = {
+                "status": "SUMMARY_READY",
+                "chief_complaint": str(parsed.get("chief_complaint", "")),
+                "summary_text": str(parsed.get("summary_text", "")),
+                "triage_level": parsed.get("triage_level", "observe"),
+                "severity": parsed.get("severity", "中度"),
+            }
+            # 保留原始数据中的所有其他字段
+            for key, val in parsed.items():
+                if key not in summary_json:
+                    summary_json[key] = val
+            new_status = "SUMMARY_READY"
 
     return {
         **state,
@@ -663,6 +735,8 @@ async def run_consultation_turn(
     existing_extracted_fields: dict | None = None,
 ) -> ConsultationState:
     """运行一轮问诊（多 Agent 版本），返回更新后的状态"""
+    from app.services.context_manager import cache_session_state
+
     lc_messages: list[BaseMessage] = []
     for m in messages:
         if m["role"] == "user":
@@ -691,6 +765,21 @@ async def run_consultation_turn(
     }
 
     result = await consultation_graph.ainvoke(initial_state)
+
+    # 缓存状态到 Redis（异步，不阻塞返回）
+    try:
+        cacheable = {
+            "session_id": session_id,
+            "status": result.get("status"),
+            "round_count": result.get("round_count"),
+            "red_flag_detected": result.get("red_flag_detected"),
+            "extracted_fields": result.get("extracted_fields"),
+            "current_agent": result.get("current_agent"),
+        }
+        await cache_session_state(session_id, cacheable)
+    except Exception:
+        pass  # 缓存失败不影响主流程
+
     return result
 
 
@@ -737,7 +826,7 @@ async def run_consultation_turn_stream(
     )
 
     _lang = lang or "zh"
-    rag_context = _get_rag_context(lc_messages)
+    rag_context = await _get_rag_context(lc_messages)
 
     # Build system message and LLM for the selected agent
     # Summary agent does NOT get tools — it only produces JSON
@@ -752,7 +841,9 @@ async def run_consultation_turn_stream(
     tools = build_openai_tools(active_skills) if not is_summary else []
     llm = get_llm(temperature=config["temperature"], max_tokens=config["max_tokens"], tools=tools if tools else None)
 
-    messages_with_system = [system_msg] + lc_messages
+    # Token 级裁剪
+    trimmed_messages = trim_messages_to_budget(lc_messages)
+    messages_with_system = [system_msg] + trimmed_messages
 
     # Stream LLM response
     full_content = ""
@@ -786,12 +877,27 @@ async def run_consultation_turn_stream(
     summary_json: dict | None = None
     new_status = current_status
 
-    # Parse JSON summary
+    # Parse JSON summary with Pydantic validation
     parsed = _extract_summary_json(full_content)
     min_rounds = 2 if user_requested_summary else 3
     if parsed and round_count >= min_rounds:
-        summary_json = parsed
-        new_status = "SUMMARY_READY"
+        validated = validate_and_clean_summary(parsed)
+        if validated:
+            summary_json = validated
+            new_status = "SUMMARY_READY"
+        else:
+            logger.warning(f"Summary JSON 校验失败(stream)，原始输出: {str(parsed)[:300]}")
+            summary_json = {
+                "status": "SUMMARY_READY",
+                "chief_complaint": str(parsed.get("chief_complaint", "")),
+                "summary_text": str(parsed.get("summary_text", "")),
+                "triage_level": parsed.get("triage_level", "observe"),
+                "severity": parsed.get("severity", "中度"),
+            }
+            for key, val in parsed.items():
+                if key not in summary_json:
+                    summary_json[key] = val
+            new_status = "SUMMARY_READY"
 
     # Status transitions based on agent type
     if red_flag and new_status not in ("SUMMARY_READY", "EVENT_CARD_READY", "CLOSED"):

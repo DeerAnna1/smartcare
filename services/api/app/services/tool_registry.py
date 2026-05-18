@@ -150,11 +150,7 @@ async def _execute_drug_interaction(arguments: dict[str, Any]) -> dict[str, Any]
     if not drugs:
         return {"error": "No drugs provided", "status": "failed"}
 
-    result = await query_drug_interactions(drugs)
-    return {
-        "status": "success",
-        "result": result,
-    }
+    return await query_drug_interactions(drugs)
 
 
 async def _execute_query_schedule(

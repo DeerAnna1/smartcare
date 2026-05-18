@@ -375,6 +375,24 @@ export const api = {
     };
   },
 
+  /** 上传音频进行 Whisper 转写 */
+  async uploadAudio(file: File): Promise<{
+    status: string;
+    text: string;
+    filename: string;
+  }> {
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch(`${API_BASE}/api/v1/upload/audio`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+      body: form,
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "语音转写失败"));
+    return res.json();
+  },
+
   /** IoT 近期生命体征 */
   async getLatestVitals() {
     const res = await fetch(`${API_BASE}/api/v1/iot/latest`, {

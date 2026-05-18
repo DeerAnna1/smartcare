@@ -6,7 +6,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
@@ -14,6 +14,7 @@ import httpx
 from app.api.deps.auth import get_current_user
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.models import User, LabReport
 from app.services.lab_interpreter import parse_lab_text, summarize_lab_items
 
@@ -28,13 +29,15 @@ ALLOWED_DOCUMENT_TYPES = {
     "application/pdf",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
     "text/plain",
     "image/jpeg",
     "image/png",
     "image/webp",
 }
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".webp", ".xlsx", ".xls"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB for documents
@@ -97,6 +100,24 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
                 return "", "empty"
             return text[:MAX_EXTRACT_CHARS], "success"
 
+        if ext in (".xlsx", ".xls"):
+            import openpyxl
+
+            wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+            parts: list[str] = []
+            for sheet in wb.sheetnames:
+                ws = wb[sheet]
+                parts.append(f"[{sheet}]")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    if any(cells):
+                        parts.append("\t".join(cells))
+            wb.close()
+            text = "\n".join(parts).strip()
+            if not text:
+                return "", "empty"
+            return text[:MAX_EXTRACT_CHARS], "success"
+
         # Legacy .doc upload is allowed, but text extraction is not supported here.
         return "", "unsupported"
     except Exception:
@@ -138,7 +159,9 @@ async def _extract_text_via_ocr_space(content: bytes, filename: str) -> tuple[st
 
 
 @router.post("/document")
+@limiter.limit("10/minute")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -230,7 +253,9 @@ async def get_document(
 
 
 @router.post("/avatar")
+@limiter.limit("10/minute")
 async def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -309,3 +334,61 @@ async def get_avatar(
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="头像不存在")
     return FileResponse(path=path, filename=safe_filename)
+
+
+ALLOWED_AUDIO_EXTENSIONS = {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4"}
+MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25MB (Whisper API limit)
+
+
+@router.post("/audio")
+@limiter.limit("20/minute")
+async def upload_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload audio for Whisper transcription."""
+    original_name = _safe_name(file.filename or "audio.webm")
+    ext = _extension(original_name)
+    if ext not in ALLOWED_AUDIO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="音频格式不支持，仅支持 webm/ogg/wav/mp3/m4a",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_AUDIO_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"音频文件超过 {MAX_AUDIO_SIZE // 1024 // 1024}MB 限制",
+        )
+
+    try:
+        from openai import AsyncOpenAI
+
+        whisper_base_url = settings.WHISPER_BASE_URL or settings.OPENAI_BASE_URL
+        client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=whisper_base_url,
+        )
+
+        audio_file = BytesIO(content)
+        audio_file.name = original_name
+
+        transcript = await client.audio.transcriptions.create(
+            model=settings.WHISPER_MODEL,
+            file=audio_file,
+            language="zh",
+        )
+
+        return {
+            "status": "success",
+            "text": transcript.text,
+            "filename": original_name,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"语音转写失败: {str(e)}",
+        )

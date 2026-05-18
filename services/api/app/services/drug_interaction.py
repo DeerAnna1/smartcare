@@ -120,7 +120,11 @@ async def _fetch_drug_label(client: httpx.AsyncClient, drug_name: str) -> str | 
         for result in data.get("results", []):
             di_list = result.get("drug_interactions", [])
             if di_list:
-                return " ".join(di_list)  # 拼接所有段落
+                return " ".join(di_list)
+        return None
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+        # 网络瞬时异常 → 走 tenacity 重试上层会捕获；这里仅记录后透传
+        print(f"openFDA label fetch transient error ({drug_name}): {e}")
         return None
     except Exception as e:
         print(f"openFDA label fetch error ({drug_name}): {e}")
@@ -182,7 +186,8 @@ async def query_drug_interactions(drugs: list[str]) -> dict:
             "data": {},
         }
 
-    async with httpx.AsyncClient() as client:
+    # 显式 timeout，避免无限挂起（默认 connect/read/write/pool 全 _TIMEOUT 秒）
+    async with httpx.AsyncClient(timeout=httpx.Timeout(_TIMEOUT)) as client:
         # Step 1: 转换中文药名为英文
         en_names: list[str] = [_to_english(zh) for zh in drugs]
 
