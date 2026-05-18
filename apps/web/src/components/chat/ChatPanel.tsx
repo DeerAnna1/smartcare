@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
 import VoiceToText from "@/components/input/VoiceToText";
-import FileUpload from "@/components/input/FileUpload";
 import { useLang } from "@/lib/lang-context";
 import { useTheme } from "@/lib/theme-context";
 
@@ -15,6 +14,20 @@ interface Message {
   followUpCards?: { title: string; question: string; borderColor: string }[];
   riskAlert?: { title: string; content: string };
   isThinking?: boolean;
+}
+
+interface Attachment {
+  id: string;
+  filename: string;
+  url: string;
+  size: number;
+  type: string;
+  extracted_text: string;
+  extraction_status: "success" | "unsupported" | "failed" | "empty";
+  report_id?: string;
+  lab_summary?: string;
+  uploading?: boolean;
+  error?: string;
 }
 
 interface ChatPanelProps {
@@ -32,8 +45,9 @@ export default function ChatPanel({ sessionId: initialSessionId, showBackButton 
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [hasRedFlags, setHasRedFlags] = useState(false);
-  const [showFileUpload, setShowFileUpload] = useState(false);
   const [showVoiceInput, setShowVoiceInput] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("");
   const [latestVitalHint, setLatestVitalHint] = useState<string>("");
   const [liveRiskLevel, setLiveRiskLevel] = useState<"normal" | "medium" | "high" | null>(null);
@@ -357,10 +371,86 @@ export default function ChatPanel({ sessionId: initialSessionId, showBackButton 
     }
   };
 
+  const getFileIcon = (filename: string): string => {
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
+    if (ext === "pdf") return "picture_as_pdf";
+    if (["doc", "docx"].includes(ext)) return "description";
+    if (["xlsx", "xls"].includes(ext)) return "table_chart";
+    return "draft";
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      const tempId = crypto.randomUUID();
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          filename: file.name,
+          url: "",
+          size: file.size,
+          type: file.type,
+          extracted_text: "",
+          extraction_status: "empty",
+          uploading: true,
+        },
+      ]);
+
+      try {
+        const result = await api.uploadDocument(file);
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId ? { ...a, ...result, id: tempId, uploading: false } : a
+          )
+        );
+      } catch (err) {
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? { ...a, uploading: false, error: err instanceof Error ? err.message : "上传失败" }
+              : a
+          )
+        );
+      }
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
   const sendMessage = async () => {
-    if (!input.trim() || isStreaming) return;
-    const userMessage = input.trim();
+    const hasText = input.trim().length > 0;
+    const readyAttachments = attachments.filter((a) => !a.uploading && !a.error);
+    if ((!hasText && readyAttachments.length === 0) || isStreaming) return;
+
+    const parts: string[] = [];
+    if (hasText) parts.push(input.trim());
+
+    for (const att of readyAttachments) {
+      parts.push(`[已上传文件: ${att.filename}]`);
+      if (att.extraction_status === "success" && att.extracted_text.trim()) {
+        parts.push("以下是上传文档中提取的内容，请结合这些信息继续问诊分析：");
+        parts.push(att.extracted_text.trim());
+        if (att.lab_summary) parts.push(`化验单结构化摘要：${att.lab_summary}`);
+      } else if (att.extraction_status === "empty") {
+        parts.push("提示：文件上传成功，但未提取到可读文本。请手动补充关键信息。");
+      } else if (att.extraction_status === "unsupported") {
+        parts.push("提示：该格式当前不支持自动提取文本，请手动补充关键信息。");
+      } else if (att.extraction_status === "failed") {
+        parts.push("提示：文件上传成功，但文本提取失败。请手动补充关键信息。");
+      }
+    }
+
+    const userMessage = parts.join("\n");
     setInput("");
+    setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     await sendMessageWithText(userMessage);
   };
@@ -604,39 +694,7 @@ export default function ChatPanel({ sessionId: initialSessionId, showBackButton 
 
       {/* Input area */}
       <div className="absolute bottom-0 left-0 w-full px-6 pb-6 pt-12 bg-gradient-to-t from-surface via-surface to-surface/0 pointer-events-none">
-        <div className="max-w-3xl mx-auto space-y-3 pointer-events-auto">
-          {showFileUpload && (
-            <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-3 shadow-lg">
-              <FileUpload
-                onFileUploaded={(result) => {
-                  setInput((prev) => {
-                    const lines: string[] = [];
-                    if (prev.trim()) lines.push(prev.trim());
-                    lines.push(`[已上传文件: ${result.filename}]`);
-                    if (result.extraction_status === "success" && result.extracted_text.trim()) {
-                      lines.push("\n以下是上传文档中提取的内容，请结合这些信息继续问诊分析：");
-                      lines.push(result.extracted_text.trim());
-                      if (result.lab_summary) lines.push(`\n化验单结构化摘要：${result.lab_summary}`);
-                    } else if (result.extraction_status === "empty") {
-                      lines.push("\n提示：文件上传成功，但未提取到可读文本。请手动补充关键信息。");
-                    } else if (result.extraction_status === "unsupported") {
-                      lines.push("\n提示：该格式当前不支持自动提取文本（如 .doc），请手动补充关键信息。");
-                    } else if (result.extraction_status === "failed") {
-                      lines.push("\n提示：文件上传成功，但文本提取失败。请手动补充关键信息。");
-                    }
-                    return lines.join("\n").trim();
-                  });
-                  setShowFileUpload(false);
-                  if (textareaRef.current) {
-                    textareaRef.current.style.height = "auto";
-                    textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + "px";
-                  }
-                }}
-                onError={(message) => alert(message)}
-              />
-            </div>
-          )}
-
+        <div className="max-w-3xl mx-auto space-y-2 pointer-events-auto">
           {showVoiceInput && (
             <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-3 shadow-lg">
               <VoiceToText
@@ -649,6 +707,47 @@ export default function ChatPanel({ sessionId: initialSessionId, showBackButton 
                   }
                 }}
               />
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.xlsx,.xls"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-1">
+              {attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/30 max-w-[220px]"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-primary flex-shrink-0">
+                    {getFileIcon(att.filename)}
+                  </span>
+                  <span className="truncate text-on-surface text-xs font-medium">
+                    {att.filename}
+                  </span>
+                  {att.uploading && (
+                    <span className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  )}
+                  {att.error && (
+                    <span className="material-symbols-outlined text-[14px] text-error flex-shrink-0">error</span>
+                  )}
+                  {!att.uploading && !att.error && (
+                    <button
+                      onClick={() => removeAttachment(att.id)}
+                      className="p-0.5 rounded-full hover:bg-surface-container-highest transition-colors flex-shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[14px] text-on-surface-variant">close</span>
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -673,20 +772,20 @@ export default function ChatPanel({ sessionId: initialSessionId, showBackButton 
                 <span className="material-symbols-outlined text-[20px]">summarize</span>
               </button>
               <button
-                onClick={() => { setShowFileUpload((p) => !p); setShowVoiceInput(false); }}
-                className={`p-2 rounded-lg transition-all ${showFileUpload ? "text-primary bg-primary/10" : "text-on-surface-variant hover:text-primary hover:bg-primary/5"}`}
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all"
               >
                 <span className="material-symbols-outlined text-[20px]">attach_file</span>
               </button>
               <button
-                onClick={() => { setShowVoiceInput((p) => !p); setShowFileUpload(false); }}
+                onClick={() => { setShowVoiceInput((p) => !p); }}
                 className={`p-2 rounded-lg transition-all ${showVoiceInput ? "text-primary bg-primary/10" : "text-on-surface-variant hover:text-primary hover:bg-primary/5"}`}
               >
                 <span className="material-symbols-outlined text-[20px]">mic</span>
               </button>
               <button
                 onClick={sendMessage}
-                disabled={isStreaming || !input.trim()}
+                disabled={isStreaming || (!input.trim() && attachments.filter(a => !a.uploading && !a.error).length === 0)}
                 className="p-2 bg-primary text-white rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <span className="material-symbols-outlined text-[20px]">send</span>

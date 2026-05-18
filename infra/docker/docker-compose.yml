@@ -52,7 +52,14 @@ services:
         condition: service_healthy
     volumes:
       - ../../services/api:/app
+      - chroma_cache:/home/apiuser/.cache/chroma
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   web:
     build:
@@ -67,8 +74,16 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8001
       API_URL: http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
 volumes:
   postgres_data:
   redis_data:
+  chroma_cache:

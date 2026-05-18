@@ -22,6 +22,8 @@ export default function IotSimulatorPage() {
   const [latestRisk, setLatestRisk] = useState<string>("-");
   const [latestValue, setLatestValue] = useState<string>("-");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartRateRef = useRef(heartRate);
+  const sendingRef = useRef(sending);
 
   const riskText = useMemo(() => {
     if (heartRate >= 120) return t("高风险", "High Risk");
@@ -32,6 +34,10 @@ export default function IotSimulatorPage() {
   const appendLog = (item: LogItem) => {
     setLogs((prev) => [item, ...prev].slice(0, 30));
   };
+
+  // Keep refs in sync with state so setInterval reads current values
+  useEffect(() => { heartRateRef.current = heartRate; }, [heartRate]);
+  useEffect(() => { sendingRef.current = sending; }, [sending]);
 
   const fetchLatestVitals = async () => {
     try {
@@ -46,12 +52,13 @@ export default function IotSimulatorPage() {
   };
 
   const sendOnce = async () => {
-    if (sending) return;
+    if (sendingRef.current) return;
     setSending(true);
+    sendingRef.current = true;
     const payload = {
       source: "heartbeat-web-simulator",
       metric: "heart_rate",
-      value: heartRate,
+      value: heartRateRef.current,
       unit: "bpm",
       measured_at: new Date().toISOString(),
       event_id: `web-${Date.now()}`,
@@ -67,6 +74,7 @@ export default function IotSimulatorPage() {
       alert(`${t("推送失败", "Push failed")}：${msg}`);
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   };
 

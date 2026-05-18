@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "gpt-4o-mini"
     LLM_TEMPERATURE: float = 0.1
 
+    # Whisper
+    WHISPER_MODEL: str = "whisper-1"
+    WHISPER_BASE_URL: str = ""  # If empty, uses OPENAI_BASE_URL
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 
@@ -41,6 +45,34 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
     LANGFUSE_ENABLED: bool = False
+
+    # Sentry / Logging
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"
+
+    # DB pool
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_RECYCLE: int = 1800
+    DB_POOL_TIMEOUT: int = 30
+
+    # LLM 重试 / 超时
+    LLM_REQUEST_TIMEOUT: int = 30
+    LLM_MAX_RETRIES: int = 2
+
+    # RAG
+    RAG_EMBEDDING_MODEL: str = "default"  # "default" | "bge-small-zh"
+    RAG_CHUNK_SIZE: int = 400
+    RAG_CHUNK_OVERLAP: int = 50
+    RAG_SCORE_THRESHOLD: float = 0.35
+    RAG_USE_MMR: bool = True
+    RAG_RERANKER_ENABLED: bool = False
+
+    # Memory window
+    MEMORY_TOKEN_BUDGET: int = 3000
+    MEMORY_RECENT_TURNS: int = 6
 
     @property
     def cors_origins_list(self) -> list[str]:

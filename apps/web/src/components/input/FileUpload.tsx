@@ -30,8 +30,8 @@ interface FileUploadProps {
 export default function FileUpload({
   onFileUploaded,
   onError,
-  acceptedTypes = ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp",
-  label = "上传文件（支持 PDF、Word、TXT、图片）",
+  acceptedTypes = ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.xlsx,.xls",
+  label = "上传文件（支持 PDF、Word、Excel、TXT、图片）",
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);

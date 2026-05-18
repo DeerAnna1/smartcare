@@ -15,11 +15,22 @@ def _ensure_asyncpg_url(url: str) -> str:
         return url.replace("postgres://", "postgresql+asyncpg://", 1)
     return url
 
-engine = create_async_engine(
-    _ensure_asyncpg_url(settings.DATABASE_URL),
-    echo=settings.ENV == "development",
-    pool_pre_ping=True,
-)
+
+_url = _ensure_asyncpg_url(settings.DATABASE_URL)
+_engine_kwargs: dict = {
+    "echo": settings.ENV == "development",
+    "pool_pre_ping": True,
+}
+# SQLite (sqlite+aiosqlite) 不支持连接池参数；只对 Postgres 启用
+if "postgresql" in _url:
+    _engine_kwargs.update(
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+    )
+
+engine = create_async_engine(_url, **_engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

@@ -1,7 +1,14 @@
-"""内置医学知识数据 + 加载逻辑。"""
+"""内置医学知识数据 + 加载逻辑，支持文本切分和真实文档摄入。"""
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 from app.services.rag_retriever import add_documents, clear_collection
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # ─── 内置医学知识库 ─────────────────────────────────────────────────────────
 # 每条知识：(文档文本, metadata)
@@ -222,6 +229,24 @@ MEDICAL_KNOWLEDGE: list[tuple[str, dict]] = [
 ]
 
 
+def _split_text(text: str, chunk_size: int | None = None, chunk_overlap: int | None = None) -> list[str]:
+    """使用 langchain_text_splitters 切分长文本。"""
+    if chunk_size is None:
+        chunk_size = settings.RAG_CHUNK_SIZE
+    if chunk_overlap is None:
+        chunk_overlap = settings.RAG_CHUNK_OVERLAP
+
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", "。", "；", "，", " "],
+        length_function=len,
+    )
+    return splitter.split_text(text)
+
+
 def load_knowledge() -> dict:
     """加载内置医学知识到 ChromaDB。返回统计信息。"""
     clear_collection()
@@ -234,3 +259,69 @@ def load_knowledge() -> dict:
         "loaded": count,
         "categories": list({meta.get("category", "") for _, meta in MEDICAL_KNOWLEDGE}),
     }
+
+
+def load_documents_from_files(file_paths: list[str], category: str = "医学文献") -> dict:
+    """从文件列表加载文档，支持文本切分。
+
+    支持 .txt, .md, .pdf, .docx 格式。
+    长文档会按 RAG_CHUNK_SIZE 切分后分别入库。
+    """
+    from pathlib import Path as P
+
+    all_docs: list[str] = []
+    all_metas: list[dict] = []
+
+    for fp in file_paths:
+        p = P(fp)
+        if not p.exists():
+            logger.warning(f"文件不存在: {fp}")
+            continue
+
+        ext = p.suffix.lower()
+        text = ""
+
+        if ext in (".txt", ".md"):
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        elif ext == ".pdf":
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(str(p))
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            except Exception as e:
+                logger.warning(f"PDF 解析失败 {fp}: {e}")
+                continue
+        elif ext == ".docx":
+            try:
+                from docx import Document
+                doc = Document(str(p))
+                text = "\n".join(para.text for para in doc.paragraphs if para.text)
+            except Exception as e:
+                logger.warning(f"DOCX 解析失败 {fp}: {e}")
+                continue
+        else:
+            logger.warning(f"不支持的文件格式: {ext}")
+            continue
+
+        text = text.strip()
+        if not text:
+            continue
+
+        # 切分长文本
+        chunks = _split_text(text)
+        for i, chunk in enumerate(chunks):
+            all_docs.append(chunk)
+            all_metas.append({
+                "category": category,
+                "source": p.name,
+                "keywords": "",
+                "chunk_index": i,
+                "total_chunks": len(chunks),
+            })
+
+    if all_docs:
+        count = add_documents(all_docs, all_metas)
+        logger.info(f"从 {len(file_paths)} 个文件加载了 {count} 个文档片段")
+        return {"loaded": count, "files": file_paths}
+
+    return {"loaded": 0, "files": file_paths}
