@@ -196,6 +196,14 @@ def _strip_ehr_body(content: str) -> str:
     return before + "\n[已上传健康档案，内容已供参考]"
 
 
+def _extract_text_from_content(content) -> str:
+    """从消息内容中提取纯文本（支持多模态格式）。"""
+    if isinstance(content, list):
+        text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+        return " ".join(text_parts)
+    return str(content)
+
+
 # ─── LangGraph State ────────────────────────────────────────────────────────
 
 class ConsultationState(TypedDict):
@@ -365,7 +373,15 @@ def _get_rag_context_sync(messages: list[BaseMessage]) -> str:
         from app.services.rag_retriever import retrieve
         user_msgs = [m for m in messages if isinstance(m, HumanMessage)]
         if user_msgs:
-            return retrieve(user_msgs[-1].content, top_k=3)
+            content = user_msgs[-1].content
+            # 多模态消息：提取文本部分用于 RAG 检索
+            if isinstance(content, list):
+                text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                query_text = " ".join(text_parts)
+            else:
+                query_text = str(content)
+            if query_text.strip():
+                return retrieve(query_text, top_k=3)
     except Exception:
         pass
     return ""
@@ -374,8 +390,11 @@ def _get_rag_context_sync(messages: list[BaseMessage]) -> str:
 async def _get_rag_context(messages: list[BaseMessage]) -> str:
     """Retrieve RAG context with timeout to avoid blocking on model download."""
     try:
+        from app.core.concurrency import get_rag_executor
+        executor = get_rag_executor()
+        loop = asyncio.get_running_loop()
         return await asyncio.wait_for(
-            asyncio.to_thread(_get_rag_context_sync, messages),
+            loop.run_in_executor(executor, _get_rag_context_sync, messages),
             timeout=5.0,
         )
     except (asyncio.TimeoutError, Exception):
@@ -417,11 +436,7 @@ async def _handle_tool_calls(
             )
 
         # Re-invoke LLM with tool results
-        from app.core.retry import llm_retry
-
-        async for attempt in llm_retry():
-            with attempt:
-                response = await llm_with_tools.ainvoke([system_msg] + current_messages)
+        response = await _llm_invoke_with_semaphore(llm_with_tools, [system_msg] + current_messages)
         content = response.content or ""
 
     return content, current_messages
@@ -466,21 +481,49 @@ async def _handle_tool_calls_stream(
             )
 
         # Re-invoke LLM with tool results, stream the response
-        response = None
-        async for chunk in llm_with_tools.astream([system_msg] + current_messages):
-            if response is None:
-                response = chunk
-            else:
-                response = response + chunk
-            token = chunk.content
-            if token:
-                yield ("token", token)
+        from app.core.concurrency import get_llm_semaphore
+        sem = get_llm_semaphore()
+        await asyncio.wait_for(sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT)
+        try:
+            response = None
+            async for chunk in llm_with_tools.astream([system_msg] + current_messages):
+                if response is None:
+                    response = chunk
+                else:
+                    response = response + chunk
+                token = chunk.content
+                if token:
+                    yield ("token", token)
+        finally:
+            sem.release()
 
         if response and response.tool_calls:
             # LLM wants more tool calls
             continue
         else:
             break
+
+
+# ─── LLM Semaphore Helper ─────────────────────────────────────────────────
+
+async def _llm_invoke_with_semaphore(llm, messages) -> AIMessage:
+    """Call LLM with semaphore-gated concurrency + tenacity retry."""
+    from app.core.concurrency import get_llm_semaphore
+    from app.core.retry import llm_retry
+
+    sem = get_llm_semaphore()
+
+    async for attempt in llm_retry():
+        with attempt:
+            try:
+                await asyncio.wait_for(sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT)
+            except asyncio.TimeoutError:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=503, detail="AI 服务繁忙，请稍后重试")
+            try:
+                return await llm.ainvoke(messages)
+            finally:
+                sem.release()
 
 
 # ─── Multi-Agent Nodes ──────────────────────────────────────────────────────
@@ -502,11 +545,8 @@ async def _run_agent_with_tools(
     token_count = count_message_tokens(trimmed_messages)
     if token_count > settings.MEMORY_TOKEN_BUDGET:
         logger.info(f"消息裁剪: {len(state['messages'])} → {len(trimmed_messages)} 条, ~{token_count} tokens")
-    from app.core.retry import llm_retry
 
-    async for attempt in llm_retry():
-        with attempt:
-            response = await llm.ainvoke(messages_with_system)
+    response = await _llm_invoke_with_semaphore(llm, messages_with_system)
     content: str = response.content or ""
 
     if hasattr(response, "tool_calls") and response.tool_calls:
@@ -528,7 +568,7 @@ async def triage_node(state: ConsultationState) -> ConsultationState:
     content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
 
     user_text = " ".join(
-        m.content for m in state["messages"]
+        _extract_text_from_content(m.content) for m in state["messages"]
         if hasattr(m, "content") and isinstance(m, HumanMessage)
     )
     red_flag = detect_red_flags(user_text)
@@ -556,7 +596,7 @@ async def symptom_collector_node(state: ConsultationState) -> ConsultationState:
     content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
 
     user_text = " ".join(
-        m.content for m in state["messages"]
+        _extract_text_from_content(m.content) for m in state["messages"]
         if hasattr(m, "content") and isinstance(m, HumanMessage)
     )
     red_flag = detect_red_flags(user_text)
@@ -616,11 +656,8 @@ async def summary_generator_node(state: ConsultationState) -> ConsultationState:
     # Token 级裁剪：长对话避免超出上下文窗口
     trimmed_messages = trim_messages_to_budget(list(state["messages"]))
     messages_with_system = [system_msg] + trimmed_messages
-    from app.core.retry import llm_retry
 
-    async for attempt in llm_retry():
-        with attempt:
-            response = await llm.ainvoke(messages_with_system)
+    response = await _llm_invoke_with_semaphore(llm, messages_with_system)
     content: str = response.content or ""
 
     summary_json: dict | None = None
@@ -740,13 +777,19 @@ async def run_consultation_turn(
     lc_messages: list[BaseMessage] = []
     for m in messages:
         if m["role"] == "user":
-            lc_messages.append(HumanMessage(content=_strip_ehr_body(m["content"])))
+            content = m["content"]
+            # 多模态消息：content 为列表时，直接使用 OpenAI Vision 格式
+            if isinstance(content, list):
+                lc_messages.append(HumanMessage(content=content))
+            else:
+                lc_messages.append(HumanMessage(content=_strip_ehr_body(content)))
         elif m["role"] == "assistant":
             lc_messages.append(AIMessage(content=m["content"]))
 
     # Detect if user explicitly requested summary
     _summary_keywords = ["总结", "结论", "阶段性", "summary", "conclude"]
-    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    last_user_content = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    last_user_msg = _extract_text_from_content(last_user_content)
     user_requested_summary = any(kw in last_user_msg for kw in _summary_keywords)
 
     initial_state: ConsultationState = {
@@ -806,14 +849,20 @@ async def run_consultation_turn_stream(
     lc_messages: list[BaseMessage] = []
     for m in messages:
         if m["role"] == "user":
-            lc_messages.append(HumanMessage(content=_strip_ehr_body(m["content"])))
+            content = m["content"]
+            # 多模态消息：content 为列表时，直接使用 OpenAI Vision 格式
+            if isinstance(content, list):
+                lc_messages.append(HumanMessage(content=content))
+            else:
+                lc_messages.append(HumanMessage(content=_strip_ehr_body(content)))
         elif m["role"] == "assistant":
             lc_messages.append(AIMessage(content=m["content"]))
 
     # Determine which agent to run
     # Detect if user explicitly requested summary
     _summary_keywords = ["总结", "结论", "阶段性", "summary", "conclude"]
-    last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    last_user_content = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    last_user_msg = last_user_content if isinstance(last_user_content, str) else str(last_user_content)
     user_requested_summary = any(kw in last_user_msg for kw in _summary_keywords)
 
     next_agent = select_next_agent(
@@ -846,17 +895,23 @@ async def run_consultation_turn_stream(
     messages_with_system = [system_msg] + trimmed_messages
 
     # Stream LLM response
+    from app.core.concurrency import get_llm_semaphore
+    sem = get_llm_semaphore()
+    await asyncio.wait_for(sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT)
     full_content = ""
     response_obj = None
-    async for chunk in llm.astream(messages_with_system):
-        if response_obj is None:
-            response_obj = chunk
-        else:
-            response_obj = response_obj + chunk
-        token = chunk.content
-        if token:
-            full_content += token
-            yield ("token", token)
+    try:
+        async for chunk in llm.astream(messages_with_system):
+            if response_obj is None:
+                response_obj = chunk
+            else:
+                response_obj = response_obj + chunk
+            token = chunk.content
+            if token:
+                full_content += token
+                yield ("token", token)
+    finally:
+        sem.release()
 
     # Handle tool calls if present
     if (response_obj and hasattr(response_obj, "tool_calls") and response_obj.tool_calls):

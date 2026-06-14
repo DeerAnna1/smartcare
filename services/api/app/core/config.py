@@ -11,15 +11,27 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # LLM
+    # LLM (MiMo model family — OpenAI-compatible API)
     OPENAI_API_KEY: str
-    OPENAI_BASE_URL: str = "https://yunwu.ai/v1"
-    LLM_MODEL: str = "gpt-4o-mini"
+    OPENAI_BASE_URL: str = "https://token-plan-cn.xiaomimimo.com/v1"
+    LLM_MODEL: str = "mimo-v2-omni"  # Multimodal: image + video + text
     LLM_TEMPERATURE: float = 0.1
 
-    # Whisper
-    WHISPER_MODEL: str = "whisper-1"
+    # MiMo model variants
+    MIMO_ASR_MODEL: str = "mimo-v2.5-asr"       # Speech-to-text
+    MIMO_TTS_MODEL: str = "mimo-v2.5-tts"       # Text-to-speech
+    MIMO_OMNI_MODEL: str = "mimo-v2-omni"       # Multimodal (vision + text)
+
+    # Whisper / ASR
+    WHISPER_MODEL: str = "mimo-v2.5-asr"
     WHISPER_BASE_URL: str = ""  # If empty, uses OPENAI_BASE_URL
+
+    # TTS
+    TTS_MODEL: str = "mimo-v2.5-tts"
+    TTS_BASE_URL: str = ""  # If empty, uses OPENAI_BASE_URL
+
+    # Multimodal upload limits
+    MAX_VIDEO_SIZE: int = 100 * 1024 * 1024  # 100MB for video
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
@@ -63,16 +75,25 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 2
 
     # RAG
-    RAG_EMBEDDING_MODEL: str = "default"  # "default" | "bge-small-zh"
+    RAG_EMBEDDING_MODEL: str = "BAAI/bge-large-zh-v1.5"  # 中文嵌入模型（1024维，检索 SOTA）
     RAG_CHUNK_SIZE: int = 400
     RAG_CHUNK_OVERLAP: int = 50
     RAG_SCORE_THRESHOLD: float = 0.35
     RAG_USE_MMR: bool = True
     RAG_RERANKER_ENABLED: bool = False
+    RAG_RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"  # Cross-Encoder 重排模型
+    RAG_RERANKER_TOP_K: int = 3  # 重排后保留的文档数
 
     # Memory window
     MEMORY_TOKEN_BUDGET: int = 3000
     MEMORY_RECENT_TURNS: int = 6
+
+    # Concurrency control (性能优化)
+    CONCURRENCY_ENABLED: bool = True
+    CONCURRENCY_MAX_CONCURRENT_REQUESTS: int = 30      # 每 worker 最大并发请求数
+    CONCURRENCY_MAX_CONCURRENT_LLM_CALLS: int = 15     # 每 worker 最大并发 LLM 调用数
+    CONCURRENCY_RAG_THREAD_POOL_SIZE: int = 8          # RAG 线程池大小
+    CONCURRENCY_LLM_ACQUIRE_TIMEOUT: int = 30          # LLM 信号量获取超时(秒)
 
     @property
     def cors_origins_list(self) -> list[str]:

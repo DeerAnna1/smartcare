@@ -45,6 +45,14 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
       CORS_ORIGINS: "http://localhost:3001,http://localhost:3000"
       ENV: development
+      CONCURRENCY_ENABLED: ${CONCURRENCY_ENABLED:-true}
+      CONCURRENCY_MAX_CONCURRENT_REQUESTS: ${CONCURRENCY_MAX_CONCURRENT_REQUESTS:-30}
+      CONCURRENCY_MAX_CONCURRENT_LLM_CALLS: ${CONCURRENCY_MAX_CONCURRENT_LLM_CALLS:-15}
+      CONCURRENCY_RAG_THREAD_POOL_SIZE: ${CONCURRENCY_RAG_THREAD_POOL_SIZE:-8}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-/home/apiuser/.cache/huggingface/hub/BAAI/bge-large-zh-v1___5}
+      RAG_RERANKER_ENABLED: ${RAG_RERANKER_ENABLED:-true}
+      RAG_RERANKER_MODEL: ${RAG_RERANKER_MODEL:-/home/apiuser/.cache/huggingface/hub/BAAI/bge-reranker-v2-m3}
+      RAG_RERANKER_TOP_K: ${RAG_RERANKER_TOP_K:-3}
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +61,7 @@ services:
     volumes:
       - ../../services/api:/app
       - chroma_cache:/home/apiuser/.cache/chroma
+      - ../../services/api/models:/home/apiuser/.cache/huggingface/hub
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]

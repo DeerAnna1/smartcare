@@ -106,14 +106,27 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Redis 预热失败，首次请求可能较慢")
 
-    # 预热 ChromaDB（可能需下载模型，后台执行不阻塞启动）
+    # 初始化并发控制（信号量 + 线程池）
+    from app.core.concurrency import init_concurrency
+    init_concurrency(
+        max_requests=settings.CONCURRENCY_MAX_CONCURRENT_REQUESTS if settings.CONCURRENCY_ENABLED else 9999,
+        max_llm_calls=settings.CONCURRENCY_MAX_CONCURRENT_LLM_CALLS if settings.CONCURRENCY_ENABLED else 9999,
+        rag_pool_size=settings.CONCURRENCY_RAG_THREAD_POOL_SIZE,
+    )
+
+    # 预热 ChromaDB 和重排模型（可能需下载模型，后台执行不阻塞启动）
     async def _warm_chromadb():
         try:
-            from app.services.rag_retriever import _get_collection
-            _get_collection()
+            from app.services.rag_retriever import _get_collection, _get_reranker
+            await asyncio.to_thread(_get_collection)
             logger.info("ChromaDB 预热完成")
+            if settings.RAG_RERANKER_ENABLED:
+                reranker = await asyncio.to_thread(_get_reranker)
+                if reranker:
+                    await asyncio.to_thread(reranker._load_model)
+                    logger.info("Cross-Encoder 重排模型预热完成")
         except Exception:
-            logger.warning("ChromaDB 预热失败，首次请求可能较慢")
+            logger.warning("RAG 预热失败，首次请求可能较慢")
     asyncio.create_task(_warm_chromadb())
 
     yield
@@ -121,6 +134,8 @@ async def lifespan(app: FastAPI):
         proactive_task.cancel()
     # Flush Langfuse events before shutdown
     flush_langfuse()
+    from app.core.concurrency import shutdown_concurrency
+    shutdown_concurrency()
     from app.services.context_manager import close_redis
     await close_redis()
     await engine.dispose()

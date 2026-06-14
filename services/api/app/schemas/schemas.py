@@ -92,10 +92,19 @@ class SessionDetailResponse(BaseModel):
     red_flag_detected: bool = False
 
 
+class ContentPart(BaseModel):
+    """多模态消息内容片段（OpenAI Vision API 格式）"""
+    type: Literal["text", "image_url", "video_url"]
+    text: str | None = None
+    image_url: dict | None = None  # {"url": "data:image/jpeg;base64,..."}
+    video_url: dict | None = None  # {"url": "data:video/mp4;base64,..."}
+
+
 class SendMessageRequest(BaseModel):
     role: Literal["user"] = "user"
-    content: str
+    content: str | list[ContentPart]
     lang: str | None = None
+    media_urls: list[str] | None = None  # 已上传的图片/视频 URL 列表
 
 
 class SessionMessageResponse(BaseModel):

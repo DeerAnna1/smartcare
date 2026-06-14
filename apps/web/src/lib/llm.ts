@@ -8,7 +8,7 @@ export function getLLMClient(): OpenAI {
     const baseURL =
       process.env.OPENAI_BASE_URL ||
       process.env.LLM_BASE_URL ||
-      "https://yunwu.ai/v1";
+      "https://token-plan-cn.xiaomimimo.com/v1";
 
     if (!apiKey) {
       throw new Error(
@@ -22,7 +22,7 @@ export function getLLMClient(): OpenAI {
 }
 
 export function getModel(): string {
-  return process.env.LLM_MODEL || "gpt-4o-mini";
+  return process.env.LLM_MODEL || "mimo-v2-omni";
 }
 
 export function getTemperature(): number {

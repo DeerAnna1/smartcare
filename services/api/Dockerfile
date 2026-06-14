@@ -7,7 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --trusted-host pypi.tuna.tsinghua.edu.cn \
+    --timeout 300 --retries 5 \
+    -r requirements.txt
 
 
 # ─── Runtime ────────────────────────────────────────────────────────────────
@@ -22,6 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --uid 1001 --gid 0 --create-home apiuser
 
 COPY --from=builder /install /usr/local
+
+# Pre-create model cache directories with correct ownership
+RUN mkdir -p /home/apiuser/.cache/huggingface \
+    /home/apiuser/.cache/chroma \
+    && chown -R apiuser:0 /home/apiuser/.cache
+
 COPY --chown=apiuser:0 . .
 
 USER apiuser

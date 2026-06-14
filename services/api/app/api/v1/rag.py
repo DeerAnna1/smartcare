@@ -1,6 +1,7 @@
 """RAG 医学知识库 API。"""
 from __future__ import annotations
 
+import asyncio
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
@@ -14,7 +15,10 @@ router = APIRouter(prefix="/rag", tags=["RAG 知识库"])
 
 class LoadResponse(BaseModel):
     loaded: int
-    categories: list[str]
+    categories: dict
+    source: str = ""
+    total_records: int = 0
+    skipped: int = 0
 
 
 class DocumentLoadRequest(BaseModel):
@@ -37,7 +41,7 @@ async def load_medical_knowledge(
     user: User = Depends(get_current_user_required),
 ):
     """加载内置医学知识到 ChromaDB 向量库。"""
-    result = load_knowledge()
+    result = await asyncio.to_thread(load_knowledge)
     return LoadResponse(**result)
 
 

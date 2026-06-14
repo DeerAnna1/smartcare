@@ -26,3 +26,7 @@ sentry-sdk[fastapi]>=2.13.0
 gunicorn>=22.0.0
 slowapi>=0.1.9
 openpyxl>=3.1.0
+unstructured[all-docs]>=0.15.0
+anthropic>=0.34.0
+locust>=2.20.0
+sentence-transformers>=3.0.0

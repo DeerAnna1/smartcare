@@ -76,11 +76,12 @@ export const api = {
     return res.json();
   },
 
-  /** 发送消息（非流式）*/
+  /** 发送消息（非流式，支持多模态）*/
   async sendMessage(
     sessionId: string,
-    content: string,
-    lang?: string
+    content: string | Array<{ type: string; text?: string; image_url?: { url: string }; video_url?: { url: string } }>,
+    lang?: string,
+    mediaUrls?: string[]
   ): Promise<{
     status: string;
     assistant_message: string;
@@ -92,25 +93,26 @@ export const api = {
       {
         method: "POST",
         headers: withAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ role: "user", content, lang }),
+        body: JSON.stringify({ role: "user", content, lang, media_urls: mediaUrls }),
       }
     );
     if (!res.ok) throw new Error(`发送消息失败 ${res.status}`);
     return res.json();
   },
 
-  /** 发送消息（SSE 流式）*/
+  /** 发送消息（SSE 流式，支持多模态）*/
   async sendMessageStream(
     sessionId: string,
-    content: string,
-    lang?: string
+    content: string | Array<{ type: string; text?: string; image_url?: { url: string }; video_url?: { url: string } }>,
+    lang?: string,
+    mediaUrls?: string[]
   ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
     const res = await fetch(
       `${API_BASE}/api/v1/consultations/${sessionId}/messages/stream`,
       {
         method: "POST",
         headers: withAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ role: "user", content, lang }),
+        body: JSON.stringify({ role: "user", content, lang, media_urls: mediaUrls }),
       }
     );
     if (!res.ok) throw new Error(`发送消息失败 ${res.status}`);
@@ -391,6 +393,30 @@ export const api = {
     });
     if (!res.ok) throw new Error(await readErrorMessage(res, "语音转写失败"));
     return res.json();
+  },
+
+  /** 上传视频用于多模态问诊 */
+  async uploadVideo(file: File): Promise<{
+    status: string;
+    filename: string;
+    url: string;
+    size: number;
+    type: string;
+  }> {
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch(`${API_BASE}/api/v1/upload/video`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+      body: form,
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "视频上传失败"));
+    const data = await res.json();
+    return {
+      ...data,
+      url: toAbsoluteMediaUrl(data.url || ""),
+    };
   },
 
   /** IoT 近期生命体征 */

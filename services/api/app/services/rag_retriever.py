@@ -1,4 +1,8 @@
-"""RAG 检索服务：基于 ChromaDB 的医学知识向量检索，支持 MMR 和 score 阈值。"""
+"""RAG 检索服务：基于 ChromaDB 的医学知识向量检索，支持 MMR 多样性排序和 Cross-Encoder 精排。
+
+嵌入模型：BAAI/bge-large-zh-v1.5（1024维，中文检索 SOTA，支持 instruction 前缀）
+重排模型：BAAI/bge-reranker-v2-m3（Cross-Encoder，可选开启）
+"""
 from __future__ import annotations
 
 import os
@@ -7,6 +11,7 @@ from functools import lru_cache
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 from app.core.config import get_settings
 
@@ -15,6 +20,95 @@ settings = get_settings()
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "chroma_db")
 COLLECTION_NAME = "medical_knowledge"
+
+# 中文嵌入模型名称（从配置读取）
+CHINESE_EMBEDDING_MODEL = settings.RAG_EMBEDDING_MODEL
+
+
+class ChineseEmbeddingFunction(EmbeddingFunction):
+    """使用 sentence-transformers 的中文嵌入函数。
+
+    bge 系列模型支持 instruction 前缀：查询时加前缀提升检索精度，
+    文档编码时不加前缀。对于非 bge 模型，前缀为空，行为不变。
+    """
+
+    # bge 模型推荐的查询前缀
+    _BGE_QUERY_PREFIX = "为这个句子生成表示以用于检索相关文章："
+
+    def __init__(self, model_name: str = CHINESE_EMBEDDING_MODEL):
+        self._model_name = model_name
+        self._model = None
+        self._is_bge = "bge" in model_name.lower()
+
+    def _load_model(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            logger.info(f"加载中文嵌入模型: {self._model_name}")
+            self._model = SentenceTransformer(self._model_name)
+            logger.info("中文嵌入模型加载完成")
+        return self._model
+
+    def __call__(self, input: Documents) -> Embeddings:
+        """ChromaDB 存入时调用，使用文档模式（不加前缀）。"""
+        model = self._load_model()
+        embeddings = model.encode(input, normalize_embeddings=True)
+        return embeddings.tolist()
+
+    def encode_query(self, query: str) -> list[float]:
+        """查询时调用，bge 模型自动加 instruction 前缀。"""
+        model = self._load_model()
+        text = self._BGE_QUERY_PREFIX + query if self._is_bge else query
+        embedding = model.encode([text], normalize_embeddings=True)
+        return embedding[0].tolist()
+
+
+# 全局嵌入函数实例（懒加载）
+_embedding_fn: ChineseEmbeddingFunction | None = None
+
+
+def _get_embedding_function() -> ChineseEmbeddingFunction:
+    global _embedding_fn
+    if _embedding_fn is None:
+        _embedding_fn = ChineseEmbeddingFunction()
+    return _embedding_fn
+
+
+class CrossEncoderReranker:
+    """Cross-Encoder 重排器：将 query 和 doc 拼接后共同编码，计算精确相关性分数。"""
+
+    def __init__(self, model_name: str):
+        self._model_name = model_name
+        self._model = None
+
+    def _load_model(self):
+        if self._model is None:
+            from sentence_transformers import CrossEncoder
+            logger.info(f"加载 Cross-Encoder 重排模型: {self._model_name}")
+            self._model = CrossEncoder(self._model_name)
+            logger.info("Cross-Encoder 重排模型加载完成")
+        return self._model
+
+    def rerank(self, query: str, docs: list[str], top_k: int = 3) -> list[tuple[int, float]]:
+        """对候选文档重排，返回 [(original_index, score), ...] 按分数降序。"""
+        if not docs:
+            return []
+        model = self._load_model()
+        pairs = [(query, doc) for doc in docs]
+        scores = model.predict(pairs)
+        ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+        return ranked[:top_k]
+
+
+_reranker: CrossEncoderReranker | None = None
+
+
+def _get_reranker() -> CrossEncoderReranker | None:
+    global _reranker
+    if not settings.RAG_RERANKER_ENABLED:
+        return None
+    if _reranker is None:
+        _reranker = CrossEncoderReranker(settings.RAG_RERANKER_MODEL)
+    return _reranker
 
 
 def _get_client() -> chromadb.ClientAPI:
@@ -28,9 +122,11 @@ def _get_client() -> chromadb.ClientAPI:
 @lru_cache
 def _get_collection() -> chromadb.Collection:
     client = _get_client()
+    embedding_fn = _get_embedding_function()
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},
+        embedding_function=embedding_fn,
     )
 
 
@@ -147,23 +243,28 @@ def retrieve(
         return ""
 
     # MMR re-ranking if enabled and we have embeddings
-    if use_mmr and embeddings and len(filtered) > top_k:
+    if use_mmr and embeddings is not None and len(embeddings) > 0 and len(filtered) > top_k:
         indices = list(range(len(filtered)))
         doc_embeddings = [embeddings[filtered[i][0]] for i in indices]
-        query_embedding = collection.query(
-            query_texts=[query], n_results=1, include=["embeddings"]
-        )["embeddings"][0][0] if embeddings else []
 
-        if query_embedding:
-            mmr_indices = _mmr_rerank(
-                query_embedding, doc_embeddings, indices,
-                lambda_param=0.5, top_k=top_k,
-            )
-            filtered = [filtered[i] for i in mmr_indices]
-        else:
-            filtered = filtered[:top_k]
+        # 使用 encode_query 获取查询向量（bge 模型会加 instruction 前缀）
+        embedding_fn = _get_embedding_function()
+        query_embedding = embedding_fn.encode_query(query)
+
+        mmr_indices = _mmr_rerank(
+            query_embedding, doc_embeddings, indices,
+            lambda_param=0.5, top_k=top_k,
+        )
+        filtered = [filtered[i] for i in mmr_indices]
     else:
         filtered = filtered[:top_k]
+
+    # Cross-Encoder 精排（在 MMR 之后，进一步提升排序质量）
+    reranker = _get_reranker()
+    if reranker and len(filtered) > 1:
+        docs_for_rerank = [doc for _, doc, _, _ in filtered]
+        reranked = reranker.rerank(query, docs_for_rerank, top_k=settings.RAG_RERANKER_TOP_K)
+        filtered = [filtered[i] for i, _ in reranked]
 
     lines = []
     for _, doc, meta, dist in filtered:
@@ -183,19 +284,44 @@ def add_documents(
     metadatas: list[dict] | None = None,
     ids: list[str] | None = None,
 ) -> int:
-    """添加文档到知识库。返回添加数量。"""
+    """添加文档到知识库。返回添加数量。自动分批处理，避免超过 ChromaDB 批量上限。"""
+    import hashlib
+
     collection = _get_collection()
     if not documents:
         return 0
 
     if ids is None:
-        import hashlib
-        ids = [hashlib.md5(doc.encode()).hexdigest() for doc in documents]
+        # 使用索引+内容哈希确保全局唯一
+        ids = []
+        seen: set[str] = set()
+        for i, doc in enumerate(documents):
+            meta = metadatas[i] if metadatas and i < len(metadatas) else {}
+            chunk_idx = meta.get("chunk_index", 0)
+            # 包含索引 i 保证唯一
+            raw = f"{i}:{chunk_idx}:{doc[:100]}"
+            h = hashlib.md5(raw.encode()).hexdigest()
+            # 处理极端碰撞
+            while h in seen:
+                raw = f"{raw}:dup{i}"
+                h = hashlib.md5(raw.encode()).hexdigest()
+            seen.add(h)
+            ids.append(h)
     if metadatas is None:
         metadatas = [{}] * len(documents)
 
-    collection.add(documents=documents, metadatas=metadatas, ids=ids)
-    return len(documents)
+    # ChromaDB 单次批量上限约 5461，分批添加
+    MAX_BATCH = 5000
+    total = len(documents)
+    for start in range(0, total, MAX_BATCH):
+        end = min(start + MAX_BATCH, total)
+        collection.add(
+            documents=documents[start:end],
+            metadatas=metadatas[start:end],
+            ids=ids[start:end],
+        )
+
+    return total
 
 
 def get_stats() -> dict:

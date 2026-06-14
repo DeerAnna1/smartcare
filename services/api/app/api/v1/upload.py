@@ -62,6 +62,35 @@ def _extension(name: str) -> str:
     return Path(name).suffix.lower()
 
 
+def _extract_text_with_unstructured(content: bytes, filename: str) -> tuple[str, str]:
+    """使用 unstructured 库解析文档（支持复杂 PDF 表格、OCR 等）。"""
+    import tempfile
+    import os
+    try:
+        from unstructured.partition.auto import partition
+        # unstructured 需要文件路径，写入临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            elements = partition(filename=tmp_path)
+            text_parts = []
+            for elem in elements:
+                text = str(elem).strip()
+                if text:
+                    text_parts.append(text)
+            text = "\n".join(text_parts).strip()
+            if not text:
+                return "", "empty"
+            return text[:MAX_EXTRACT_CHARS], "success"
+        finally:
+            os.unlink(tmp_path)
+    except ImportError:
+        return "", "failed"
+    except Exception:
+        return "", "failed"
+
+
 def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
     """Extract plain text from supported file types.
 
@@ -77,8 +106,12 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
             return text[:MAX_EXTRACT_CHARS], "success"
 
         if ext == ".pdf":
+            # 优先使用 unstructured（支持表格、OCR、复杂排版）
+            text, status = _extract_text_with_unstructured(content, "document.pdf")
+            if status == "success":
+                return text, status
+            # 回退到 pypdf
             from pypdf import PdfReader
-
             reader = PdfReader(BytesIO(content))
             parts: list[str] = []
             for page in reader.pages:
@@ -92,8 +125,12 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
             return text[:MAX_EXTRACT_CHARS], "success"
 
         if ext == ".docx":
+            # 优先使用 unstructured
+            text, status = _extract_text_with_unstructured(content, "document.docx")
+            if status == "success":
+                return text, status
+            # 回退到 python-docx
             from docx import Document
-
             doc = Document(BytesIO(content))
             text = "\n".join(p.text for p in doc.paragraphs if p.text).strip()
             if not text:
@@ -102,7 +139,6 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
 
         if ext in (".xlsx", ".xls"):
             import openpyxl
-
             wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
             parts: list[str] = []
             for sheet in wb.sheetnames:
@@ -339,6 +375,10 @@ async def get_avatar(
 ALLOWED_AUDIO_EXTENSIONS = {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4"}
 MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25MB (Whisper API limit)
 
+ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/avi", "video/quicktime", "video/x-matroska", "video/webm"}
+MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB
+
 
 @router.post("/audio")
 @limiter.limit("20/minute")
@@ -375,8 +415,9 @@ async def upload_audio(
         audio_file = BytesIO(content)
         audio_file.name = original_name
 
+        # Use MiMo ASR model for speech-to-text
         transcript = await client.audio.transcriptions.create(
-            model=settings.WHISPER_MODEL,
+            model=settings.MIMO_ASR_MODEL,
             file=audio_file,
             language="zh",
         )
@@ -392,3 +433,66 @@ async def upload_audio(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"语音转写失败: {str(e)}",
         )
+
+
+@router.post("/video")
+@limiter.limit("5/minute")
+async def upload_video(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload video for multimodal consultation (MiMo Omni)."""
+    original_name = _safe_name(file.filename or "video.mp4")
+    ext = _extension(original_name)
+    if ext not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="视频格式不支持，仅支持 mp4/avi/mov/mkv/webm",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"视频文件超过 {MAX_VIDEO_SIZE // 1024 // 1024}MB 限制",
+        )
+
+    try:
+        user_dir = UPLOAD_DIR / str(current_user.id) / "videos"
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{secrets.token_hex(4)}_{original_name}"
+        filepath = user_dir / filename
+
+        with open(filepath, "wb") as f:
+            f.write(content)
+
+        return {
+            "status": "success",
+            "filename": filename,
+            "url": f"/api/v1/upload/video/{filename}",
+            "size": len(content),
+            "type": file.content_type,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"视频上传失败: {str(e)}",
+        )
+
+
+@router.get("/video/{filename}")
+async def get_video(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Serve uploaded video file."""
+    user_dir = UPLOAD_DIR / str(current_user.id) / "videos"
+    safe_filename = _safe_name(filename)
+    path = user_dir / safe_filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    return FileResponse(path=path, filename=safe_filename, media_type="video/mp4")

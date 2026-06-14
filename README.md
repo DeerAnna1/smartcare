@@ -6,6 +6,54 @@
 docker compose -f infra/docker/docker-compose.yml up -d --build
 ```
 
+## ⚠️ 模型与数据集下载（必读）
+
+由于 ML 模型和数据集体积较大（共约 3.6 GB），未包含在 Git 仓库中，**首次运行前必须手动下载**。
+
+### 1. 医学数据集（45 MB）
+
+RAG 知识库依赖 QASystemOnMedicalKG 医学数据集：
+
+```bash
+# 从 HuggingFace 下载
+huggingface-cli download wangyuxinwhy/medical medical.json \
+  --local-dir services/api/data/medical_datasets/
+
+# 或使用 wget
+wget -O services/api/data/medical_datasets/medical.json \
+  "https://huggingface.co/datasets/wangyuxinwhy/medical/resolve/main/medical.json"
+```
+
+### 2. Embedding 模型（1.2 GB）
+
+RAG 向量检索依赖中文嵌入模型：
+
+```bash
+huggingface-cli download BAAI/bge-large-zh-v1.5 \
+  --local-dir services/api/models/BAAI/bge-large-zh-v1.5
+```
+
+### 3. Reranker 模型（2.1 GB，可选）
+
+如需启用重排序（`RAG_RERANKER_ENABLED=true`），还需下载：
+
+```bash
+huggingface-cli download BAAI/bge-reranker-v2-m3 \
+  --local-dir services/api/models/BAAI/bge-reranker-v2-m3
+```
+
+### 4. 加载知识库
+
+模型和数据集下载完成后，启动服务并调用 API 加载：
+
+```bash
+# 启动服务后，调用加载接口
+curl -X POST http://localhost:8001/api/v1/rag/load \
+  -H "Authorization: Bearer <your_token>"
+```
+
+> **提示**：如使用 Docker 部署，可将模型目录挂载到容器中，或在 Dockerfile 中添加下载步骤。
+
 ### 能力概览
 
 - 健康问诊与结论生成（LangGraph 多轮编排）

@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.concurrency import get_request_semaphore
 from sqlalchemy import select
 from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
@@ -39,6 +40,16 @@ from app.services.tool_registry import execute_tool_call
 from app.core.observability import flush_langfuse
 
 router = APIRouter(prefix="/consultations", tags=["健康问诊"])
+
+
+async def _require_request_slot():
+    """FastAPI dependency: acquire request concurrency semaphore for the request lifetime."""
+    sem = get_request_semaphore()
+    await asyncio.wait_for(sem.acquire(), timeout=60)
+    try:
+        yield
+    finally:
+        sem.release()
 
 
 # 常见商品名/中成药名补充。未必能映射到 openFDA 通用名，但至少应被识别出来，
@@ -530,6 +541,7 @@ async def send_message(
     request: Request,
     session_id: str,
     body: SendMessageRequest,
+    _slot: None = Depends(_require_request_slot),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_required),
 ):
@@ -544,7 +556,33 @@ async def send_message(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     messages: list[dict] = json.loads(session.raw_messages)
-    user_content = body.content
+
+    # 多模态内容处理：content 可以是 str 或 list[ContentPart]
+    is_multimodal = isinstance(body.content, list)
+    if is_multimodal:
+        # 提取文本部分用于风险评估和 RAG
+        text_parts = [p.text for p in body.content if p.type == "text" and p.text]
+        user_text = " ".join(text_parts)
+        # 构建 OpenAI Vision 格式的多模态内容
+        multimodal_content = []
+        for part in body.content:
+            if part.type == "text":
+                multimodal_content.append({"type": "text", "text": part.text or ""})
+            elif part.type == "image_url" and part.image_url:
+                multimodal_content.append({"type": "image_url", "image_url": part.image_url})
+            elif part.type == "video_url" and part.video_url:
+                multimodal_content.append({"type": "video_url", "video_url": part.video_url})
+        # 添加已上传的媒体 URL
+        if body.media_urls:
+            for url in body.media_urls:
+                if any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+                    multimodal_content.append({"type": "image_url", "image_url": {"url": url}})
+                elif any(ext in url.lower() for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"]):
+                    multimodal_content.append({"type": "video_url", "video_url": {"url": url}})
+        user_content = multimodal_content
+    else:
+        user_text = body.content
+        user_content = body.content
 
     # 并行查询：活跃技能、用户凭证、最近检验、最近体征
     skill_q = db.execute(select(SkillPackage).where(SkillPackage.status == "ACTIVE"))
@@ -583,14 +621,33 @@ async def send_message(
     # 注入 OCR 和 IoT 的最近上下文，帮助问诊推理
     latest_report = latest_report_res.scalars().first()
     if latest_report and latest_report.summary:
-        user_content += f"\n[最近检验摘要] {latest_report.summary}"
+        user_text += f"\n[最近检验摘要] {latest_report.summary}"
 
     latest_vital = latest_vital_res.scalars().first()
     if latest_vital:
-        user_content += (
+        user_text += (
             f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
             f"risk={latest_vital.risk_level}"
         )
+
+    # 多模态消息：将上下文追加到文本部分
+    if is_multimodal:
+        # 找到最后一个 text 类型的 part 并追加上下文
+        context_suffix = ""
+        if latest_report and latest_report.summary:
+            context_suffix += f"\n[最近检验摘要] {latest_report.summary}"
+        if latest_vital:
+            context_suffix += (
+                f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
+                f"risk={latest_vital.risk_level}"
+            )
+        if context_suffix:
+            # 在多模态内容末尾追加上下文文本
+            multimodal_content.append({"type": "text", "text": context_suffix})
+        user_content = multimodal_content
+    else:
+        # 非多模态：user_text 已包含上下文
+        user_content = user_text
 
     messages.append({"role": "user", "content": user_content})
 
@@ -648,7 +705,7 @@ async def send_message(
             )
 
     # 安全围栏：高风险直接转人工并挂起
-    risk_level, risk_evidence = evaluate_risk(body.content)
+    risk_level, risk_evidence = evaluate_risk(user_text)
     if risk_level == "high":
         ticket = HandoffTicket(
             user_id=user.id,
@@ -656,7 +713,7 @@ async def send_message(
             status="pending",
             risk_level="high",
             reason="命中高危语义规则，触发人工接管",
-            brief=body.content[:400],
+            brief=user_text[:400],
             evidence=json.dumps(risk_evidence, ensure_ascii=False),
         )
         db.add(ticket)
@@ -683,7 +740,7 @@ async def send_message(
         )
 
     # 兜底：用户明确询问两药同用时，强制触发药物相互作用技能（不依赖 LLM 是否输出 invoke）
-    force_skill, extracted_drugs = _should_force_drug_skill(body.content, active_skills)
+    force_skill, extracted_drugs = _should_force_drug_skill(user_text, active_skills)
     if force_skill:
         t_start = time.time()
         result = await _execute_skill(
@@ -721,7 +778,7 @@ async def send_message(
         )
 
     # 兜底：用户明显要挂号/预约时，强制触发挂号预约技能（不依赖 LLM 是否输出 invoke 或 native function calling）
-    force_reg, reg_params = _should_force_registration_skill(body.content, active_skills)
+    force_reg, reg_params = _should_force_registration_skill(user_text, active_skills)
     if force_reg:
         t_start = time.time()
         result = await _execute_skill(
@@ -822,6 +879,7 @@ async def send_message_stream(
     request: Request,
     session_id: str,
     body: SendMessageRequest,
+    _slot: None = Depends(_require_request_slot),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_required),
 ):
@@ -839,7 +897,30 @@ async def send_message_stream(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     messages: list[dict] = _json.loads(session.raw_messages)
-    user_content = body.content
+
+    # 多模态内容处理
+    is_multimodal = isinstance(body.content, list)
+    if is_multimodal:
+        text_parts = [p.text for p in body.content if p.type == "text" and p.text]
+        user_text = " ".join(text_parts)
+        multimodal_content = []
+        for part in body.content:
+            if part.type == "text":
+                multimodal_content.append({"type": "text", "text": part.text or ""})
+            elif part.type == "image_url" and part.image_url:
+                multimodal_content.append({"type": "image_url", "image_url": part.image_url})
+            elif part.type == "video_url" and part.video_url:
+                multimodal_content.append({"type": "video_url", "video_url": part.video_url})
+        if body.media_urls:
+            for url in body.media_urls:
+                if any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+                    multimodal_content.append({"type": "image_url", "image_url": {"url": url}})
+                elif any(ext in url.lower() for ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"]):
+                    multimodal_content.append({"type": "video_url", "video_url": {"url": url}})
+        user_content = multimodal_content
+    else:
+        user_text = body.content
+        user_content = body.content
 
     # 并行查询：活跃技能、用户凭证、最近检验、最近体征
     skill_q = db.execute(select(SkillPackage).where(SkillPackage.status == "ACTIVE"))
@@ -879,14 +960,29 @@ async def send_message_stream(
     # 注入上下文
     latest_report = latest_report_res.scalars().first()
     if latest_report and latest_report.summary:
-        user_content += f"\n[最近检验摘要] {latest_report.summary}"
+        user_text += f"\n[最近检验摘要] {latest_report.summary}"
 
     latest_vital = latest_vital_res.scalars().first()
     if latest_vital:
-        user_content += (
+        user_text += (
             f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
             f"risk={latest_vital.risk_level}"
         )
+
+    if is_multimodal:
+        context_suffix = ""
+        if latest_report and latest_report.summary:
+            context_suffix += f"\n[最近检验摘要] {latest_report.summary}"
+        if latest_vital:
+            context_suffix += (
+                f"\n[最近穿戴设备数据] {latest_vital.metric}={latest_vital.value}{latest_vital.unit} "
+                f"risk={latest_vital.risk_level}"
+            )
+        if context_suffix:
+            multimodal_content.append({"type": "text", "text": context_suffix})
+        user_content = multimodal_content
+    else:
+        user_content = user_text
 
     messages.append({"role": "user", "content": user_content})
 
@@ -925,11 +1021,11 @@ async def send_message_stream(
             return StreamingResponse(_early_sse(), media_type="text/event-stream")
 
     # 文本高风险守卫
-    risk_level_val, risk_evidence = evaluate_risk(body.content)
+    risk_level_val, risk_evidence = evaluate_risk(user_text)
     if risk_level_val == "high":
         ticket = HandoffTicket(
             user_id=user.id, session_id=session.id, status="pending", risk_level="high",
-            reason="命中高危语义规则，触发人工接管", brief=body.content[:400],
+            reason="命中高危语义规则，触发人工接管", brief=user_text[:400],
             evidence=_json.dumps(risk_evidence, ensure_ascii=False),
         )
         db.add(ticket)
@@ -945,7 +1041,7 @@ async def send_message_stream(
         return StreamingResponse(_early_sse_risk(), media_type="text/event-stream")
 
     # 药物技能兜底
-    force_skill, extracted_drugs = _should_force_drug_skill(body.content, active_skills)
+    force_skill, extracted_drugs = _should_force_drug_skill(user_text, active_skills)
     if force_skill:
         t_start = time.time()
         result_skill = await _execute_skill(
@@ -965,7 +1061,7 @@ async def send_message_stream(
         return StreamingResponse(_early_sse_drug(), media_type="text/event-stream")
 
     # 挂号预约技能兜底
-    force_reg, reg_params = _should_force_registration_skill(body.content, active_skills)
+    force_reg, reg_params = _should_force_registration_skill(user_text, active_skills)
     if force_reg:
         t_start = time.time()
         result_reg = await _execute_skill(
