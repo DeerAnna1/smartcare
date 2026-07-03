@@ -1,5 +1,7 @@
 # ─── 环境变量（含密钥，绝不提交）────────────────────────────────────────────
 infra/docker/.env
+infra/production/.env.production
+infra/production/backups/
 .env
 .env.local
 .env.*.local

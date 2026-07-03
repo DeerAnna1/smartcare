@@ -204,6 +204,16 @@ def _extract_text_from_content(content) -> str:
     return str(content)
 
 
+def _messages_contain_images(messages: list[BaseMessage]) -> bool:
+    """检查消息列表中是否包含图片（多模态内容）。"""
+    for msg in messages:
+        if hasattr(msg, "content") and isinstance(msg.content, list):
+            for part in msg.content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+    return False
+
+
 # ─── LangGraph State ────────────────────────────────────────────────────────
 
 class ConsultationState(TypedDict):
@@ -222,6 +232,11 @@ class ConsultationState(TypedDict):
     lang: str | None
     current_agent: str
     user_requested_summary: bool
+    user_llm_config: dict | None
+
+
+class OutputLimitExceeded(RuntimeError):
+    """The provider still stopped for length after bounded continuation."""
 
 
 # ─── LLM Factory ────────────────────────────────────────────────────────────
@@ -230,16 +245,21 @@ def get_llm(
     temperature: float | None = None,
     max_tokens: int = 1200,
     tools: list[dict] | None = None,
+    model: str | None = None,
+    user_api_key: str | None = None,
+    user_base_url: str | None = None,
+    user_model: str | None = None,
 ) -> ChatOpenAI:
     """Create a ChatOpenAI instance with optional tool binding.
 
     重试由外层 tenacity 包装统一处理，这里关闭 SDK 自带 retry 避免叠加。
+    支持用户自定义 LLM 配置（优先级高于全局配置）。
     """
     llm = ChatOpenAI(
-        model=settings.LLM_MODEL,
+        model=user_model or model or settings.LLM_MODEL,
         temperature=temperature or settings.LLM_TEMPERATURE,
-        openai_api_key=settings.OPENAI_API_KEY,
-        openai_api_base=settings.OPENAI_BASE_URL,
+        openai_api_key=user_api_key or settings.OPENAI_API_KEY,
+        openai_api_base=user_base_url or settings.OPENAI_BASE_URL,
         streaming=True,
         max_tokens=max_tokens,
         timeout=settings.LLM_REQUEST_TIMEOUT,
@@ -266,17 +286,25 @@ def _build_skills_block(active_skills: list[dict]) -> str:
             f"\n  描述：{sk.get('description','')}"
             f"\n  工具：{tool_names} | 触发场景：{triggers}"
         )
+        if sk.get("instructions"):
+            lines.append(f"  执行说明：{sk['instructions']}")
     lines.append(
         "\n【工具调用规则】\n"
         "你拥有可用的工具函数（tools）。当用户意图匹配以下场景时，你**必须**使用工具函数调用来执行，**禁止**自行编造结果：\n"
-        "- 药物相互作用查询 → 调用 check_drug_interaction\n"
+        "- 药物相互作用查询 → 调用 openfda-drug-safety 相关工具（如 openfda_search_adverse_events、openfda_get_drug_label 等）\n"
+        "- 医学文献检索 → 调用 pubmed-research 相关工具（如 pubmed_search_articles、pubmed_fetch_articles 等）\n"
         "- 挂号/查号源/查排班 → 调用 query_doctor_schedule\n"
         "- 锁号/预约 → 调用 lock_appointment_slot\n"
-        "调用工具后，根据返回结果为用户生成自然语言回复。\n"
+        "调用工具后，**必须**根据返回结果为用户生成自然语言回复，即使工具返回错误也要告知用户。\n"
         "❌ 禁止：对工具覆盖范围内的问题直接编造答案（不调用工具）\n"
         "✅ 正确：先调用工具获取真实数据，再基于结果回复用户"
     )
     return "\n".join(lines)
+
+
+def _skills_for_agent(active_skills: list[dict] | None, agent_key: str) -> list[dict]:
+    """Apply per-Agent Skill allowlists before prompt and tool injection."""
+    return [skill for skill in active_skills or [] if not skill.get("agents") or agent_key in skill["agents"]]
 
 
 def _build_system_message(state: ConsultationState, rag_context: str = "", lang: str | None = None) -> SystemMessage:
@@ -362,7 +390,7 @@ def _build_agent_system_message(agent_key: str, state: ConsultationState, rag_co
             rag_block = f"\n\n【参考知识库】\n{rag_context}"
 
     # Add skills block (skip for summary agent — it only needs to produce JSON, not call tools)
-    skills_block = _build_skills_block(state.get("active_skills") or []) if include_skills else ""
+    skills_block = _build_skills_block(_skills_for_agent(state.get("active_skills"), agent_key)) if include_skills else ""
 
     return SystemMessage(content=agent_prompt + date_hint + constraints + rag_block + skills_block)
 
@@ -393,12 +421,38 @@ async def _get_rag_context(messages: list[BaseMessage]) -> str:
         from app.core.concurrency import get_rag_executor
         executor = get_rag_executor()
         loop = asyncio.get_running_loop()
-        return await asyncio.wait_for(
+        text_context = await asyncio.wait_for(
             loop.run_in_executor(executor, _get_rag_context_sync, messages),
             timeout=5.0,
         )
     except (asyncio.TimeoutError, Exception):
-        return ""
+        text_context = ""
+
+    # 查询知识库中的图片文档，附加到上下文中
+    try:
+        from app.core.database import AsyncSessionLocal
+        from sqlalchemy import select
+        from app.models.models import KnowledgeDocument
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(KnowledgeDocument).where(
+                    KnowledgeDocument.source_type == "image",
+                ).limit(5)
+            )
+            image_docs = result.scalars().all()
+            if image_docs:
+                image_lines = []
+                for doc in image_docs:
+                    image_url = f"/api/v1/rag/documents/{doc.id}/image"
+                    image_lines.append(f"[知识库图片] {doc.title} — 查看图片: {image_url}")
+                image_context = "\n".join(image_lines)
+                if text_context:
+                    return f"{text_context}\n---\n{image_context}"
+                return image_context
+    except Exception:
+        pass
+
+    return text_context
 
 
 async def _handle_tool_calls(
@@ -408,6 +462,7 @@ async def _handle_tool_calls(
     system_msg: SystemMessage,
     db_session=None,
     user_id: str | None = None,
+    active_skills: list[dict] | None = None,
 ) -> tuple[str, list[BaseMessage]]:
     """Handle tool calls from LLM response. Loop until LLM returns final text.
 
@@ -430,7 +485,7 @@ async def _handle_tool_calls(
             tool_id = tc["id"]
 
             logger.info(f"Executing tool call: {tool_name} with args: {tool_args}")
-            result = await execute_tool_call(tool_name, tool_args, db_session, user_id)
+            result = await execute_tool_call(tool_name, tool_args, db_session, user_id, active_skills)
             current_messages.append(
                 ToolMessage(content=json.dumps(result, ensure_ascii=False), tool_call_id=tool_id)
             )
@@ -438,6 +493,18 @@ async def _handle_tool_calls(
         # Re-invoke LLM with tool results
         response = await _llm_invoke_with_semaphore(llm_with_tools, [system_msg] + current_messages)
         content = response.content or ""
+
+    # Tool-backed answers can be much longer than the short consultation-agent
+    # budget. Continue only when the provider explicitly reports truncation.
+    continuation_count = 0
+    while _response_was_truncated(response) and continuation_count < 3:
+        continuation_count += 1
+        current_messages.extend([
+            response,
+            HumanMessage(content="继续完成上一条回答，严格满足用户要求；不要重复已经输出的内容。"),
+        ])
+        response = await _llm_invoke_with_semaphore(llm_with_tools, [system_msg] + current_messages)
+        content += response.content or ""
 
     return content, current_messages
 
@@ -449,6 +516,7 @@ async def _handle_tool_calls_stream(
     system_msg: SystemMessage,
     db_session=None,
     user_id: str | None = None,
+    active_skills: list[dict] | None = None,
 ):
     """Handle tool calls in streaming mode. Yields tool execution events.
 
@@ -464,6 +532,7 @@ async def _handle_tool_calls_stream(
             yield ("token", response.content)
         return
 
+    continuation_count = 0
     while response.tool_calls:
         current_messages.append(response)
 
@@ -472,9 +541,10 @@ async def _handle_tool_calls_stream(
             tool_args = tc["args"]
             tool_id = tc["id"]
 
-            yield ("tool_start", {"name": tool_name, "args": tool_args})
-            result = await execute_tool_call(tool_name, tool_args, db_session, user_id)
-            yield ("tool_end", {"name": tool_name, "result": result})
+            skill_meta = _resolve_tool_skill(tool_name, active_skills)
+            yield ("tool_start", {"name": tool_name, "args": tool_args, "call_id": tool_id, **skill_meta})
+            result = await execute_tool_call(tool_name, tool_args, db_session, user_id, active_skills)
+            yield ("tool_end", {"name": tool_name, "result": result, "call_id": tool_id, **skill_meta})
 
             current_messages.append(
                 ToolMessage(content=json.dumps(result, ensure_ascii=False), tool_call_id=tool_id)
@@ -500,8 +570,66 @@ async def _handle_tool_calls_stream(
         if response and response.tool_calls:
             # LLM wants more tool calls
             continue
+        elif response and _response_was_truncated(response):
+            while response and _response_was_truncated(response) and continuation_count < 3:
+                continuation_count += 1
+                current_messages.extend([
+                    response,
+                    HumanMessage(content="继续完成上一条回答，严格满足用户要求；不要重复已经输出的内容。"),
+                ])
+                # Ask for the missing tail and append it to the same SSE answer.
+                sem = get_llm_semaphore()
+                await asyncio.wait_for(sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT)
+                try:
+                    next_response = None
+                    async for chunk in llm_with_tools.astream([system_msg] + current_messages):
+                        next_response = chunk if next_response is None else next_response + chunk
+                        if chunk.content:
+                            yield ("token", chunk.content)
+                    response = next_response
+                finally:
+                    sem.release()
+            if response and _response_was_truncated(response):
+                raise OutputLimitExceeded("工具调用后的回答超出总输出上限")
+            break
         else:
             break
+
+
+def _response_was_truncated(response: AIMessage | None) -> bool:
+    """Return True only when the model provider reports a token-limit stop."""
+    if response is None:
+        return False
+    metadata = getattr(response, "response_metadata", {}) or {}
+    finish_reason = metadata.get("finish_reason") or metadata.get("stop_reason")
+    if finish_reason in ("length", "max_tokens"):
+        return True
+    generation_info = getattr(response, "generation_info", None) or {}
+    return generation_info.get("finish_reason") in ("length", "max_tokens")
+
+
+def _content_looks_truncated(content: str) -> bool:
+    """Detect a small set of unambiguous broken stream endings.
+
+    Some OpenAI-compatible providers omit finish_reason. A replacement
+    character or a dangling separator at the very end is strong evidence that
+    the answer ended mid-item, while ordinary sentence endings are untouched.
+    """
+    tail = (content or "").rstrip()
+    return bool(tail) and tail.endswith(("�", "—", "：", ":", "（", "("))
+
+
+def _resolve_tool_skill(tool_name: str, active_skills: list[dict] | None) -> dict[str, str]:
+    for skill in active_skills or []:
+        if any(t.get("name") == tool_name for t in skill.get("tools", []) if isinstance(t, dict)):
+            return {"skill_id": skill.get("skill_id", ""), "skill_name": skill.get("name", tool_name)}
+    builtin_names = {
+        "check_drug_interaction": ("drug-safety", "用药安全检查"),
+        "query_doctor_schedule": ("appointment-booking", "挂号预约"),
+        "lock_appointment_slot": ("appointment-booking", "挂号预约"),
+    }
+    skill_id, skill_name = builtin_names.get(tool_name, (tool_name, tool_name))
+    return {"skill_id": skill_id, "skill_name": skill_name}
 
 
 # ─── LLM Semaphore Helper ─────────────────────────────────────────────────
@@ -533,10 +661,18 @@ async def _run_agent_with_tools(
     system_msg: SystemMessage,
     temperature: float,
     max_tokens: int,
+    user_llm_config: dict | None = None,
+    agent_key: str = "collector",
 ) -> str:
     """Run an agent with native tool calling. Loops until LLM returns plain text."""
-    tools = build_openai_tools(state.get("active_skills"))
-    llm = get_llm(temperature=temperature, max_tokens=max_tokens, tools=tools if tools else None)
+    selected_skills = _skills_for_agent(state.get("active_skills"), agent_key)
+    tools = build_openai_tools(selected_skills)
+    # 检查是否包含图片，使用支持多模态的模型
+    has_images = _messages_contain_images(state["messages"])
+    model = settings.MIMO_OMNI_MODEL if has_images else None
+    ucfg = user_llm_config or {}
+    llm = get_llm(temperature=temperature, max_tokens=max_tokens, tools=tools if tools else None, model=model,
+                  user_api_key=ucfg.get("api_key"), user_base_url=ucfg.get("base_url"), user_model=ucfg.get("model"))
 
     # Token 级裁剪：将消息裁剪到预算内，避免超出上下文窗口
     trimmed_messages = trim_messages_to_budget(list(state["messages"]))
@@ -551,7 +687,8 @@ async def _run_agent_with_tools(
 
     if hasattr(response, "tool_calls") and response.tool_calls:
         content, _ = await _handle_tool_calls(
-            response, llm, list(state["messages"]), system_msg
+            response, llm, list(state["messages"]), system_msg,
+            active_skills=selected_skills,
         )
 
     return content
@@ -562,10 +699,28 @@ async def triage_node(state: ConsultationState) -> ConsultationState:
     """Initial triage: assess chief complaint, detect emergencies, suggest department."""
     lang = state.get("lang") or "zh"
     rag_context = await _get_rag_context(state["messages"])
-    system_msg = _build_agent_system_message("triage", state, rag_context, lang)
+
+    # 知识图谱上下文注入
+    kg_context = ""
+    try:
+        from app.services.kg_service import get_context_summary
+        user_text = " ".join(
+            _extract_text_from_content(m.content) for m in state["messages"]
+            if hasattr(m, "content") and isinstance(m, HumanMessage)
+        )
+        # 简单分词提取症状关键词
+        import re as _re
+        keywords = [w for w in _re.split(r'[，,、。\s]+', user_text) if 2 <= len(w) <= 6]
+        if keywords:
+            kg_context = get_context_summary(keywords[:8])
+    except Exception:
+        pass
+
+    system_msg = _build_agent_system_message("triage", state, rag_context + kg_context, lang)
 
     config = get_agent_config("triage")
-    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"],
+                                          user_llm_config=state.get("user_llm_config"), agent_key="triage")
 
     user_text = " ".join(
         _extract_text_from_content(m.content) for m in state["messages"]
@@ -593,7 +748,8 @@ async def symptom_collector_node(state: ConsultationState) -> ConsultationState:
     system_msg = _build_agent_system_message("collector", state, rag_context, lang)
 
     config = get_agent_config("collector")
-    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"],
+                                          user_llm_config=state.get("user_llm_config"), agent_key="collector")
 
     user_text = " ".join(
         _extract_text_from_content(m.content) for m in state["messages"]
@@ -626,7 +782,8 @@ async def risk_assessor_node(state: ConsultationState) -> ConsultationState:
     system_msg = _build_agent_system_message("risk", state, rag_context, lang)
 
     config = get_agent_config("risk")
-    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"])
+    content = await _run_agent_with_tools(state, system_msg, config["temperature"], config["max_tokens"],
+                                          user_llm_config=state.get("user_llm_config"), agent_key="risk")
 
     return {
         **state,
@@ -648,10 +805,28 @@ async def summary_generator_node(state: ConsultationState) -> ConsultationState:
     to prefer tool_calls over JSON output.
     """
     lang = state.get("lang") or "zh"
-    system_msg = _build_agent_system_message("summary", state, "", lang, include_skills=False)
+
+    # 知识图谱上下文注入
+    kg_context = ""
+    try:
+        from app.services.kg_service import get_context_summary
+        extracted = state.get("extracted_fields") or {}
+        symptoms = extracted.get("symptom_summary") or []
+        diseases = [c.get("name", "") for c in (extracted.get("candidate_conditions") or []) if c.get("name")]
+        if symptoms or diseases:
+            kg_context = get_context_summary(symptoms, diseases)
+    except Exception:
+        pass
+
+    system_msg = _build_agent_system_message("summary", state, kg_context, lang, include_skills=False)
 
     agent_config = get_agent_config("summary")
-    llm = get_llm(temperature=agent_config["temperature"], max_tokens=agent_config["max_tokens"])
+    # 检查是否包含图片，使用支持多模态的模型
+    has_images = _messages_contain_images(state["messages"])
+    model = settings.MIMO_OMNI_MODEL if has_images else None
+    ucfg = state.get("user_llm_config") or {}
+    llm = get_llm(temperature=agent_config["temperature"], max_tokens=agent_config["max_tokens"], model=model,
+                  user_api_key=ucfg.get("api_key"), user_base_url=ucfg.get("base_url"), user_model=ucfg.get("model"))
 
     # Token 级裁剪：长对话避免超出上下文窗口
     trimmed_messages = trim_messages_to_budget(list(state["messages"]))
@@ -724,8 +899,8 @@ def should_continue(state: ConsultationState) -> str:
 
 # ─── Build Multi-Agent Graph ────────────────────────────────────────────────
 
-def build_consultation_graph() -> StateGraph:
-    """Build the multi-agent LangGraph with conditional routing."""
+def _build_graph_builder() -> StateGraph:
+    """构建 graph builder（不含 compile，便于注入 checkpointer）。"""
     builder = StateGraph(ConsultationState)
 
     # Add agent nodes (all with native tool calling)
@@ -754,10 +929,28 @@ def build_consultation_graph() -> StateGraph:
     for agent_node in ["triage", "collector", "risk", "summary"]:
         builder.add_conditional_edges(agent_node, should_continue, {"route": "route", END: END})
 
-    return builder.compile()
+    return builder
 
 
+def build_consultation_graph():
+    """Build the multi-agent LangGraph (无 checkpointer，向后兼容）。"""
+    return _build_graph_builder().compile()
+
+
+# 全局 graph 实例（无 checkpointer，用于向后兼容）
 consultation_graph = build_consultation_graph()
+
+
+async def build_consultation_graph_with_checkpoint():
+    """Build the multi-agent LangGraph with PostgreSQL checkpointer."""
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        checkpointer = AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL)
+        builder = _build_graph_builder()
+        return builder.compile(checkpointer=checkpointer)
+    except Exception as e:
+        logger.warning(f"PostgreSQL checkpointer 初始化失败，回退到无 checkpointer 模式: {e}")
+        return build_consultation_graph()
 
 
 # ─── Public Interface ───────────────────────────────────────────────────────
@@ -770,8 +963,15 @@ async def run_consultation_turn(
     active_skills: list[dict] | None = None,
     lang: str | None = None,
     existing_extracted_fields: dict | None = None,
+    use_checkpoint: bool = False,
+    user_llm_config: dict | None = None,
 ) -> ConsultationState:
-    """运行一轮问诊（多 Agent 版本），返回更新后的状态"""
+    """运行一轮问诊（多 Agent 版本），返回更新后的状态。
+
+    Args:
+        use_checkpoint: 若为 True，使用 PostgreSQL checkpointer 持久化会话状态，
+            可在进程重启后恢复。默认 False 以保持向后兼容。
+    """
     from app.services.context_manager import cache_session_state
 
     lc_messages: list[BaseMessage] = []
@@ -805,9 +1005,15 @@ async def run_consultation_turn(
         "lang": lang,
         "current_agent": "",
         "user_requested_summary": user_requested_summary,
+        "user_llm_config": user_llm_config,
     }
 
-    result = await consultation_graph.ainvoke(initial_state)
+    # 选择 graph：带 checkpointer 或不带
+    if use_checkpoint:
+        graph = await build_consultation_graph_with_checkpoint()
+        result = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": session_id}})
+    else:
+        result = await consultation_graph.ainvoke(initial_state)
 
     # 缓存状态到 Redis（异步，不阻塞返回）
     try:
@@ -826,6 +1032,25 @@ async def run_consultation_turn(
     return result
 
 
+async def cleanup_checkpoint(session_id: str) -> None:
+    """删除会话时同步删除 PostgreSQL checkpoint 数据。"""
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        checkpointer = AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL)
+        # 删除该 thread_id 的所有 checkpoint
+        async with checkpointer.conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM checkpoint_blobs WHERE thread_id = %s", (session_id,)
+            )
+            await cur.execute(
+                "DELETE FROM checkpoints WHERE thread_id = %s", (session_id,)
+            )
+            await checkpointer.conn.commit()
+        logger.info(f"已清理会话 {session_id} 的 checkpoint 数据")
+    except Exception as e:
+        logger.warning(f"清理 checkpoint 失败（不影响主流程）: {e}")
+
+
 async def run_consultation_turn_stream(
     session_id: str,
     messages: list[dict],
@@ -834,6 +1059,9 @@ async def run_consultation_turn_stream(
     active_skills: list[dict] | None = None,
     lang: str | None = None,
     existing_extracted_fields: dict | None = None,
+    user_llm_config: dict | None = None,
+    db_session=None,
+    user_id: str | None = None,
 ):
     """流式运行一轮问诊（多 Agent 版本）。
 
@@ -880,51 +1108,142 @@ async def run_consultation_turn_stream(
     # Build system message and LLM for the selected agent
     # Summary agent does NOT get tools — it only produces JSON
     is_summary = next_agent == "summary"
+    selected_skills = _skills_for_agent(active_skills, next_agent)
     system_msg = _build_agent_system_message(next_agent, {
         "messages": lc_messages,
-        "active_skills": active_skills or [],
+        "active_skills": selected_skills,
         "extracted_fields": existing_extracted_fields or {},
         "red_flag_detected": False,
     }, rag_context, _lang, include_skills=not is_summary)
     config = get_agent_config(next_agent)
-    tools = build_openai_tools(active_skills) if not is_summary else []
-    llm = get_llm(temperature=config["temperature"], max_tokens=config["max_tokens"], tools=tools if tools else None)
+    tools = build_openai_tools(selected_skills) if not is_summary else []
+    # 检查是否包含图片，使用支持多模态的模型
+    has_images = _messages_contain_images(lc_messages)
+    model = settings.MIMO_OMNI_MODEL if has_images else None
+    ucfg = user_llm_config or {}
+    llm = get_llm(temperature=config["temperature"], max_tokens=config["max_tokens"], tools=tools if tools else None, model=model,
+                  user_api_key=ucfg.get("api_key"), user_base_url=ucfg.get("base_url"), user_model=ucfg.get("model"))
 
     # Token 级裁剪
-    trimmed_messages = trim_messages_to_budget(lc_messages)
+    fixed_tokens = count_message_tokens([system_msg])
+    input_budget = max(500, settings.MEMORY_TOKEN_BUDGET - fixed_tokens - config["max_tokens"] // 4)
+    trimmed_messages = trim_messages_to_budget(lc_messages, token_budget=input_budget)
     messages_with_system = [system_msg] + trimmed_messages
 
-    # Stream LLM response
+    # Stream LLM response. Unlike ainvoke(), astream() does not pass through
+    # _llm_invoke_with_semaphore, so retries must be applied explicitly here.
+    # Retrying is safe only before any visible token has been emitted; after
+    # that point a retry would duplicate text in the client.
     from app.core.concurrency import get_llm_semaphore
+    from app.core.retry import EmptyLLMResponseError, llm_retry
     sem = get_llm_semaphore()
-    await asyncio.wait_for(sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT)
     full_content = ""
     response_obj = None
     try:
-        async for chunk in llm.astream(messages_with_system):
-            if response_obj is None:
-                response_obj = chunk
-            else:
-                response_obj = response_obj + chunk
-            token = chunk.content
-            if token:
-                full_content += token
-                yield ("token", token)
-    finally:
-        sem.release()
+        # Two streaming attempts are enough to absorb a transient disconnect.
+        # If both fail before the first token, fall back to the more compatible
+        # non-streaming endpoint below instead of returning an empty bubble.
+        async for attempt in llm_retry(max_attempts=1):
+            with attempt:
+                attempt_content = ""
+                attempt_response = None
+                acquired = False
+                try:
+                    await asyncio.wait_for(
+                        sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT
+                    )
+                    acquired = True
+                    async for chunk in llm.astream(messages_with_system):
+                        attempt_response = chunk if attempt_response is None else attempt_response + chunk
+                        token = chunk.content
+                        if token:
+                            attempt_content += token
+                            full_content += token
+                            yield ("token", token)
+                except Exception as exc:
+                    if attempt_content:
+                        raise RuntimeError("AI 流式响应中断，请重试本条消息") from exc
+                    raise
+                finally:
+                    if acquired:
+                        sem.release()
+
+                has_attempt_tool_calls = (
+                    attempt_response
+                    and getattr(attempt_response, "tool_calls", None)
+                )
+                if not attempt_content.strip() and not has_attempt_tool_calls:
+                    raise EmptyLLMResponseError("AI 模型返回空响应")
+                response_obj = attempt_response
+            break
+    except Exception:
+        if full_content:
+            raise
+        logger.warning("流式 LLM 调用失败，切换到非流式兼容模式", exc_info=True)
+        response_obj = await _llm_invoke_with_semaphore(llm, messages_with_system)
+        fallback_content = response_obj.content or ""
+        if fallback_content:
+            full_content = fallback_content
+            yield ("token", fallback_content)
 
     # Handle tool calls if present
-    if (response_obj and hasattr(response_obj, "tool_calls") and response_obj.tool_calls):
+    has_tool_calls = response_obj and hasattr(response_obj, "tool_calls") and response_obj.tool_calls
+    if has_tool_calls:
         async for event_type, payload in _handle_tool_calls_stream(
-            response_obj, llm, lc_messages, system_msg
+            response_obj, llm, lc_messages, system_msg,
+            db_session=db_session,
+            user_id=user_id,
+            active_skills=selected_skills,
         ):
             if event_type == "token":
                 full_content += payload
             yield (event_type, payload)
+    else:
+        # The tool-call streaming path already handles token-limit
+        # continuation. Apply the same behavior to ordinary consultation
+        # answers; previously these were incorrectly persisted as completed.
+        continuation_count = 0
+        continuation_messages = list(messages_with_system)
+        while (
+            (_response_was_truncated(response_obj) or _content_looks_truncated(full_content))
+            and continuation_count < 3
+        ):
+            continuation_count += 1
+            if full_content.rstrip().endswith("�"):
+                full_content = full_content.rstrip()[:-1]
+            continuation_messages.extend([
+                response_obj or AIMessage(content=full_content),
+                HumanMessage(content="继续完成上一条回答，不要重复已经输出的内容，从中断处自然衔接。"),
+            ])
+            next_response = None
+            acquired = False
+            try:
+                await asyncio.wait_for(
+                    sem.acquire(), timeout=settings.CONCURRENCY_LLM_ACQUIRE_TIMEOUT
+                )
+                acquired = True
+                async for chunk in llm.astream(continuation_messages):
+                    next_response = chunk if next_response is None else next_response + chunk
+                    if chunk.content:
+                        full_content += chunk.content
+                        yield ("token", chunk.content)
+            finally:
+                if acquired:
+                    sem.release()
+            if next_response is None:
+                raise RuntimeError("AI 续写返回空响应")
+            response_obj = next_response
+
+        if _response_was_truncated(response_obj) or _content_looks_truncated(full_content):
+            raise OutputLimitExceeded("回答超出总输出上限，未生成完整内容")
+
+    # Defensive invariant: the retry loop should already reject this case.
+    if not full_content.strip():
+        raise RuntimeError("AI 模型返回空响应")
 
     # Post-processing
     user_text = " ".join(
-        m.content for m in lc_messages
+        _extract_text_from_content(m.content) for m in lc_messages
         if hasattr(m, "content") and isinstance(m, HumanMessage)
     )
     red_flag = detect_red_flags(user_text)

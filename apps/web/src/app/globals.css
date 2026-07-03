@@ -2,122 +2,135 @@
 
 @theme {
   /* ===== 字体系统 ===== */
-  --font-body: 'Inter', 'Microsoft YaHei', sans-serif;
-  --font-headline: 'Manrope', 'Microsoft YaHei', sans-serif;
-  --font-manrope: 'Manrope', 'Microsoft YaHei', sans-serif;
-  --font-label: 'Inter', 'Microsoft YaHei', sans-serif;
-  --font-inter: 'Inter', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-headline: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-manrope: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-label: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
 
-  /* ===== Primary 色系 ===== */
-  --color-primary: #0040e0;
-  --color-primary-container: #2e5bff;
+  /* ===== Primary 色系 (Warm Amber) ===== */
+  --color-primary: #b45309;
+  --color-primary-container: #fef3c7;
   --color-on-primary: #ffffff;
-  --color-on-primary-container: #efefff;
-  --color-primary-fixed: #dde1ff;
-  --color-primary-fixed-dim: #b8c3ff;
-  --color-on-primary-fixed: #001356;
-  --color-on-primary-fixed-variant: #0035be;
-  --color-inverse-primary: #b8c3ff;
-  --color-surface-tint: #124af0;
+  --color-on-primary-container: #78350f;
+  --color-primary-fixed: #fef3c7;
+  --color-primary-fixed-dim: #fcd34d;
+  --color-on-primary-fixed: #78350f;
+  --color-on-primary-fixed-variant: #b45309;
+  --color-inverse-primary: #fbbf24;
+  --color-surface-tint: #b45309;
 
-  /* ===== Secondary 色系 ===== */
-  --color-secondary: #006a62;
-  --color-secondary-container: #79f4e5;
+  /* ===== Secondary 色系 (Stone Gray) ===== */
+  --color-secondary: #57534e;
+  --color-secondary-container: #f5f5f4;
   --color-on-secondary: #ffffff;
-  --color-on-secondary-container: #006f66;
-  --color-secondary-fixed: #7cf6e7;
-  --color-secondary-fixed-dim: #5ddacb;
-  --color-on-secondary-fixed: #00201d;
-  --color-on-secondary-fixed-variant: #005049;
+  --color-on-secondary-container: #44403c;
+  --color-secondary-fixed: #f5f5f4;
+  --color-secondary-fixed-dim: #d6d3d1;
+  --color-on-secondary-fixed: #292524;
+  --color-on-secondary-fixed-variant: #57534e;
 
-  /* ===== Tertiary 色系 ===== */
-  --color-tertiary: #704f00;
-  --color-tertiary-container: #8f6600;
+  /* ===== Tertiary 色系 (Dark Amber) ===== */
+  --color-tertiary: #92400e;
+  --color-tertiary-container: #fef9c3;
   --color-on-tertiary: #ffffff;
-  --color-on-tertiary-container: #ffeed7;
-  --color-tertiary-fixed: #ffdea8;
-  --color-tertiary-fixed-dim: #ffba20;
-  --color-on-tertiary-fixed: #271900;
-  --color-on-tertiary-fixed-variant: #5e4200;
+  --color-on-tertiary-container: #78350f;
+  --color-tertiary-fixed: #fef9c3;
+  --color-tertiary-fixed-dim: #fde68a;
+  --color-on-tertiary-fixed: #451a03;
+  --color-on-tertiary-fixed-variant: #92400e;
 
   /* ===== Error 色系 ===== */
-  --color-error: #ba1a1a;
-  --color-error-container: #ffdad6;
+  --color-error: #b91c1c;
+  --color-error-container: #fef2f2;
   --color-on-error: #ffffff;
-  --color-on-error-container: #93000a;
+  --color-on-error-container: #991b1b;
 
   /* ===== Surface 层次系统 ===== */
-  --color-surface: #f7f9fb;
-  --color-surface-dim: #d8dadc;
-  --color-surface-bright: #f7f9fb;
+  --color-surface: #fafaf9;
+  --color-surface-dim: #e7e5e4;
+  --color-surface-bright: #fafaf9;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f2f4f6;
-  --color-surface-container: #eceef0;
-  --color-surface-container-high: #e6e8ea;
-  --color-surface-container-highest: #e0e3e5;
-  --color-surface-variant: #e0e3e5;
-  --color-on-surface: #191c1e;
-  --color-on-surface-variant: #434656;
-  --color-on-background: #191c1e;
-  --color-background: #f7f9fb;
+  --color-surface-container-low: #f5f5f4;
+  --color-surface-container: #e7e5e4;
+  --color-surface-container-high: #d6d3d1;
+  --color-surface-container-highest: #c4b5a8;
+  --color-surface-variant: #d6d3d1;
+  --color-on-surface: #1c1917;
+  --color-on-surface-variant: #57534e;
+  --color-on-background: #1c1917;
+  --color-background: #fafaf9;
 
   /* ===== 轮廓 / 反转 ===== */
-  --color-outline: #747688;
-  --color-outline-variant: #c4c5d9;
-  --color-inverse-surface: #2d3133;
-  --color-inverse-on-surface: #eff1f3;
+  --color-outline: #a8a29e;
+  --color-outline-variant: #d6d3d1;
+  --color-inverse-surface: #292524;
+  --color-inverse-on-surface: #f5f5f4;
 }
 
 /* ===== Dark Theme ===== */
 [data-theme="dark"] {
-  --color-primary: #b8c3ff;
-  --color-primary-container: #002e99;
-  --color-on-primary: #00207a;
-  --color-on-primary-container: #efefff;
-  --color-surface-tint: #b8c3ff;
-  --color-inverse-primary: #0040e0;
+  --color-primary: #f59e0b;
+  --color-primary-container: #78350f;
+  --color-on-primary: #451a03;
+  --color-on-primary-container: #fef3c7;
+  --color-surface-tint: #f59e0b;
+  --color-inverse-primary: #b45309;
 
-  --color-secondary: #5ddacb;
-  --color-secondary-container: #004f47;
-  --color-on-secondary: #003733;
-  --color-on-secondary-container: #7cf6e7;
+  --color-secondary: #a8a29e;
+  --color-secondary-container: #292524;
+  --color-on-secondary: #1c1917;
+  --color-on-secondary-container: #d6d3d1;
 
-  --color-tertiary: #ffba20;
-  --color-tertiary-container: #5e4200;
-  --color-on-tertiary: #3c2f00;
-  --color-on-tertiary-container: #ffdea8;
+  --color-tertiary: #fbbf24;
+  --color-tertiary-container: #713f12;
+  --color-on-tertiary: #451a03;
+  --color-on-tertiary-container: #fef9c3;
 
-  --color-error: #ffb4ab;
-  --color-error-container: #93000a;
-  --color-on-error: #690005;
-  --color-on-error-container: #ffdad6;
+  --color-error: #fca5a5;
+  --color-error-container: #7f1d1d;
+  --color-on-error: #450a0a;
+  --color-on-error-container: #fef2f2;
 
-  --color-surface: #111418;
-  --color-surface-dim: #111418;
-  --color-surface-bright: #37393e;
-  --color-surface-container-lowest: #0c0e13;
-  --color-surface-container-low: #191c1e;
-  --color-surface-container: #1d2024;
-  --color-surface-container-high: #282a2f;
-  --color-surface-container-highest: #33353a;
-  --color-surface-variant: #434656;
-  --color-on-surface: #e2e3e8;
-  --color-on-surface-variant: #c3c6d6;
-  --color-on-background: #e2e3e8;
-  --color-background: #111418;
+  --color-surface: #0a0a0a;
+  --color-surface-dim: #0a0a0a;
+  --color-surface-bright: #262626;
+  --color-surface-container-lowest: #050505;
+  --color-surface-container-low: #171717;
+  --color-surface-container: #1f1f1f;
+  --color-surface-container-high: #262626;
+  --color-surface-container-highest: #333333;
+  --color-surface-variant: #404040;
+  --color-on-surface: #e5e5e5;
+  --color-on-surface-variant: #a3a3a3;
+  --color-on-background: #e5e5e5;
+  --color-background: #0a0a0a;
 
-  --color-outline: #8d90a1;
-  --color-outline-variant: #434656;
-  --color-inverse-surface: #e2e3e8;
-  --color-inverse-on-surface: #2d3133;
+  --color-outline: #525252;
+  --color-outline-variant: #404040;
+  --color-inverse-surface: #e5e5e5;
+  --color-inverse-on-surface: #171717;
 }
 
 /* ===== 全局基础样式 ===== */
 body {
   background-color: var(--color-background, #f7f9fb);
   color: var(--color-on-background, #191c1e);
-  font-family: 'Inter', 'Microsoft YaHei', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   transition: background-color 0.3s, color 0.3s;
+}
+
+/* Prevent API/user-generated strings from widening mobile layouts. */
+main {
+  max-width: 100vw;
+}
+
+main :where(p, h1, h2, h3, h4, h5, h6, td, th, li) {
+  overflow-wrap: anywhere;
+}
+
+main :where(img, video, canvas, svg) {
+  max-width: 100%;
 }
 
 /* Material Symbols 变量字体设置 */
@@ -127,12 +140,12 @@ body {
 
 /* Glassmorphism 浮层面板 */
 .glass-panel {
-  background: rgba(247, 249, 251, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(250, 250, 249, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 [data-theme="dark"] .glass-panel {
-  background: rgba(29, 32, 36, 0.7);
+  background: rgba(10, 10, 10, 0.8);
 }
 
 /* 隐藏滚动条（保留功能） */
@@ -142,3 +155,147 @@ body {
 /* 动画延迟工具类 */
 .delay-75 { animation-delay: 75ms; }
 .delay-150 { animation-delay: 150ms; }
+
+/* ===== Markdown 渲染样式（聊天气泡） ===== */
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+.chat-markdown h1 { font-size: 1.25rem; }
+.chat-markdown h2 { font-size: 1.125rem; }
+.chat-markdown h3 { font-size: 1rem; }
+.chat-markdown h4 { font-size: 0.9375rem; }
+
+.chat-markdown p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  padding-left: 1.5rem;
+}
+
+.chat-markdown ul {
+  list-style-type: disc;
+}
+
+.chat-markdown ol {
+  list-style-type: decimal;
+}
+
+.chat-markdown li {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+}
+
+.chat-markdown li > ul,
+.chat-markdown li > ol {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+}
+
+.chat-markdown strong {
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.chat-markdown em {
+  font-style: italic;
+}
+
+.chat-markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-markdown a:hover {
+  opacity: 0.8;
+}
+
+.chat-markdown code {
+  background-color: var(--color-surface-container);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.chat-markdown pre {
+  background-color: var(--color-surface-container);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.chat-markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.8125rem;
+}
+
+.chat-markdown blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 0.75rem;
+  margin-left: 0;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-on-surface-variant);
+}
+
+.chat-markdown hr {
+  border: none;
+  border-top: 1px solid var(--color-outline-variant);
+  margin: 0.75rem 0;
+}
+
+/* Markdown 表格样式 */
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.chat-markdown thead th {
+  background-color: var(--color-surface-container);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-outline-variant);
+}
+
+.chat-markdown tbody td {
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-outline-variant);
+}
+
+.chat-markdown tbody tr:nth-child(even) {
+  background-color: var(--color-surface-container-low);
+}
+
+.chat-markdown tbody tr:hover {
+  background-color: var(--color-surface-container);
+}
+
+/* Markdown 图片 */
+.chat-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}

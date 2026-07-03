@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,38 @@ from app.eval.evaluator import evaluate_case, generate_report, EvalReport
 logger = logging.getLogger(__name__)
 
 TEST_CASES_PATH = Path(__file__).parent / "test_cases.json"
+
+
+def _extract_tool_runs(response_text: str) -> list[dict]:
+    """Extract tool invocation records from formatted response text.
+
+    Looks for skill result patterns produced by _format_skill_result():
+      - ✅ 【{skill_name}】... → success
+      - ⚠️ 【{skill_name}】调用失败 → failed
+    """
+    runs: list[dict] = []
+
+    # Pattern: ✅ 【skill_name】... or ⚠️ 【skill_name】调用失败
+    success_pattern = re.compile(r"✅\s*【([^】]+)】")
+    fail_pattern = re.compile(r"⚠️\s*【([^】]+)】调用失败")
+
+    for m in success_pattern.finditer(response_text):
+        runs.append({"tool_name": m.group(1), "result_status": "success", "request_json": "{}"})
+
+    for m in fail_pattern.finditer(response_text):
+        runs.append({"tool_name": m.group(1), "result_status": "failed", "request_json": "{}"})
+
+    # Also check for ```invoke blocks (legacy skill invocation)
+    invoke_pattern = re.compile(r"```invoke\s*(\{.*?\})\s*(?:```|$)", re.DOTALL)
+    for m in invoke_pattern.finditer(response_text):
+        try:
+            data = json.loads(m.group(1))
+            skill_id = data.get("skill_id", "unknown")
+            runs.append({"tool_name": skill_id, "result_status": "invoked", "request_json": m.group(1)})
+        except json.JSONDecodeError:
+            pass
+
+    return runs
 
 
 def load_test_cases() -> list[dict]:
@@ -76,6 +109,7 @@ async def run_single_case(case: dict, semaphore: asyncio.Semaphore) -> dict:
             "case_id": case_id,
             "response_text": response_text,
             "actual_state": actual_state,
+            "tool_runs": _extract_tool_runs(response_text),
             "error": None,
         }
 
@@ -138,6 +172,7 @@ async def run_evaluation(
                 case,
                 raw_result["response_text"],
                 raw_result["actual_state"],
+                tool_runs=raw_result.get("tool_runs"),
             )
             case_results.append(result)
 

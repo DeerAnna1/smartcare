@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface FileUploadProps {
   onFileUploaded?: (result: {
@@ -33,6 +34,7 @@ export default function FileUpload({
   acceptedTypes = ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.xlsx,.xls",
   label = "上传文件（支持 PDF、Word、Excel、TXT、图片）",
 }: FileUploadProps) {
+  const { t } = useLang();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ filename: string; url: string; size: number }>>([]);
@@ -81,13 +83,13 @@ export default function FileUpload({
           className="w-full p-3 rounded-xl border-2 border-dashed border-primary/40 hover:border-primary/60 transition-all disabled:opacity-50 bg-surface-container/30 flex items-center justify-center gap-2 text-on-surface"
         >
           <span className="material-symbols-outlined">cloud_upload</span>
-          <span className="text-sm font-medium">{isUploading ? "上传中..." : label}</span>
+          <span className="text-sm font-medium">{isUploading ? t("上传中...", "Uploading...") : label}</span>
         </button>
       </div>
 
       {uploadedFiles.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-bold text-on-surface-variant uppercase">已上传文件</p>
+          <p className="text-xs font-bold text-on-surface-variant uppercase">{t("已上传文件", "Uploaded Files")}</p>
           <div className="space-y-2">
             {uploadedFiles.map((file, index) => (
               <div
@@ -103,7 +105,7 @@ export default function FileUpload({
                 </div>
                 <button
                   onClick={() => handleRemoveFile(index)}
-                  className="p-1 text-on-surface-variant hover:bg-surface-container rounded opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1 text-on-surface-variant hover:bg-surface-container rounded-full opacity-0 group-hover:opacity-100 transition-all"
                 >
                   <span className="material-symbols-outlined text-[18px]">close</span>
                 </button>

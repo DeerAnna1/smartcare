@@ -28,7 +28,12 @@ export function toAbsoluteMediaUrl(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) {
     return url;
   }
-  return `${API_BASE}${url}`;
+  // Media tags cannot send an Authorization header, so use the API's
+  // query-token fallback. Keep the token source consistent with auth.ts.
+  const token = getStoredAuthToken();
+  const separator = url.includes("?") ? "&" : "?";
+  const fullUrl = `${API_BASE}${url}`;
+  return token ? `${fullUrl}${separator}token=${encodeURIComponent(token)}` : fullUrl;
 }
 
 export const api = {
@@ -105,14 +110,18 @@ export const api = {
     sessionId: string,
     content: string | Array<{ type: string; text?: string; image_url?: { url: string }; video_url?: { url: string } }>,
     lang?: string,
-    mediaUrls?: string[]
+    mediaUrls?: string[],
+    clientRequestId?: string
   ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
     const res = await fetch(
       `${API_BASE}/api/v1/consultations/${sessionId}/messages/stream`,
       {
         method: "POST",
         headers: withAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ role: "user", content, lang, media_urls: mediaUrls }),
+        body: JSON.stringify({
+          role: "user", content, lang, media_urls: mediaUrls,
+          client_request_id: clientRequestId ?? crypto.randomUUID(),
+        }),
       }
     );
     if (!res.ok) throw new Error(`发送消息失败 ${res.status}`);
@@ -124,7 +133,18 @@ export const api = {
   async getSession(sessionId: string): Promise<{
     session_id: string;
     status: string;
-    messages: { role: string; content: string }[];
+    messages: {
+      role: string;
+      content: string;
+      tool_call_id?: string;
+      tool_name?: string;
+      skill_name?: string;
+      tool_status?: string;
+      tool_args?: Record<string, unknown>;
+      tool_result?: Record<string, unknown>;
+      message_id?: string;
+      generation_status?: string;
+    }[];
     red_flag_detected: boolean;
   }> {
     const res = await fetch(`${API_BASE}/api/v1/consultations/${sessionId}`, {
@@ -183,6 +203,26 @@ export const api = {
       }
     );
     if (!res.ok) throw new Error("归档事件失败");
+    return res.json();
+  },
+
+  /** 取消事件归档，同时移除关联健康档案/EHR 数据 */
+  async unarchiveEvent(eventId: string) {
+    const res = await fetch(
+      `${API_BASE}/api/v1/health-events/${eventId}/archive`,
+      { method: "DELETE", headers: withAuthHeaders() }
+    );
+    if (!res.ok) throw new Error(await readErrorMessage(res, "取消归档失败"));
+    return res.json();
+  },
+
+  /** 删除通用执行及其关联健康档案/EHR 数据 */
+  async deleteEvent(eventId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/health-events/${eventId}`, {
+      method: "DELETE",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "删除通用执行失败"));
     return res.json();
   },
 
@@ -279,6 +319,16 @@ export const api = {
       body: JSON.stringify({}),
     });
     if (!res.ok) throw new Error("同步档案失败");
+    return res.json();
+  },
+
+  /** 取消单条档案的 EHR 同步 */
+  async unsyncRecord(recordId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/records/${recordId}/sync`, {
+      method: "DELETE",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "取消同步失败"));
     return res.json();
   },
 
@@ -518,7 +568,15 @@ export const api = {
       headers: withAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error("注册技能失败");
+    if (!res.ok) throw new Error(await readErrorMessage(res, "注册技能失败"));
+    return res.json();
+  },
+
+  async listBuiltinTools() {
+    const res = await fetch(`${API_BASE}/api/v1/skills/builtin-tools`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "获取内置执行器失败"));
     return res.json();
   },
 
@@ -533,7 +591,7 @@ export const api = {
       headers: withAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ input, trace_id: traceId ?? "" }),
     });
-    if (!res.ok) throw new Error("调用技能失败");
+    if (!res.ok) throw new Error(await readErrorMessage(res, "调用技能失败"));
     return res.json();
   },
 
@@ -575,11 +633,440 @@ export const api = {
   },
 
   /** 获取历史问诊列表 */
-  async listSessions(): Promise<{ session_id: string; status: string; created_at: string; chief_complaint: string; triage_level: string }[]> {
+  async listSessions(): Promise<{ session_id: string; status: string; created_at: string; updated_at?: string; chief_complaint: string; triage_level: string }[]> {
     const res = await fetch(`${API_BASE}/api/v1/consultations`, {
       headers: withAuthHeaders(),
     });
     if (!res.ok) throw new Error("获取历史问诊失败");
     return res.json();
   },
+
+  /** 获取患者上下文信息（记忆、检验、穿戴数据） */
+  async getPatientContext(): Promise<{
+    memory_facts: { id: string; type: string; text: string; confidence: number }[];
+    latest_report: { id: string; summary: string; created_at: string | null } | null;
+    vitals: { id: string; metric: string; value: string | number; unit: string; risk_level: string; created_at: string | null }[];
+  }> {
+    const res = await fetch(`${API_BASE}/api/v1/consultations/context/patient`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取患者上下文失败");
+    return res.json();
+  },
+
+  // ---- 知识图谱 ----
+
+  /** 搜索知识图谱实体 */
+  async kgSearch(q: string, type: string = "all", limit: number = 20) {
+    const res = await fetch(`${API_BASE}/api/v1/kg/search?q=${encodeURIComponent(q)}&type=${type}&limit=${limit}`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("搜索知识图谱失败");
+    return res.json() as Promise<{ results: { type: string; name: string; desc: string }[]; total: number }>;
+  },
+
+  /** 获取节点详情 */
+  async kgNode(entityType: string, name: string) {
+    const res = await fetch(`${API_BASE}/api/v1/kg/node/${entityType}/${encodeURIComponent(name)}`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取节点详情失败");
+    return res.json();
+  },
+
+  /** 获取节点详情（别名，供 MiniKnowledgeGraph 使用） */
+  async kgNodeDetail(entityType: string, name: string) {
+    return this.kgNode(entityType, name);
+  },
+
+  /** 获取邻居节点 */
+  async kgNeighbors(entityType: string, name: string) {
+    const res = await fetch(`${API_BASE}/api/v1/kg/neighbors/${entityType}/${encodeURIComponent(name)}`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取邻居节点失败");
+    return res.json() as Promise<{ nodes: KGNode[]; edges: KGEdge[] }>;
+  },
+
+  /** 获取子图 */
+  async kgSubgraph(entityType: string, name: string, depth: number = 1) {
+    const res = await fetch(`${API_BASE}/api/v1/kg/subgraph/${entityType}/${encodeURIComponent(name)}?depth=${depth}`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取子图失败");
+    return res.json() as Promise<{ nodes: KGNode[]; edges: KGEdge[] }>;
+  },
+
+  /** 获取问诊上下文图谱 */
+  async kgConsultationContext(symptoms: string, diseases: string = "") {
+    const res = await fetch(`${API_BASE}/api/v1/kg/consultation-context?symptoms=${encodeURIComponent(symptoms)}&diseases=${encodeURIComponent(diseases)}`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取问诊图谱失败");
+    return res.json() as Promise<{ nodes: KGNode[]; edges: KGEdge[]; symptom_diseases: Record<string, string[]> }>;
+  },
+
+  // ─── LLM 配置 ───────────────────────────────────────────────────
+
+  async getLLMConfig() {
+    const res = await fetch(`${API_BASE}/api/v1/auth/llm-config`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取 LLM 配置失败");
+    return res.json() as Promise<{
+      has_config: boolean; api_key_masked: string; base_url: string; model: string;
+      asr_model: string; asr_base_url: string; tts_model: string; tts_base_url: string;
+      omni_model: string; omni_base_url: string;
+    }>;
+  },
+
+  async updateLLMConfig(body: {
+    api_key?: string; base_url: string; model: string;
+    asr_model?: string; asr_base_url?: string;
+    tts_model?: string; tts_base_url?: string;
+    omni_model?: string; omni_base_url?: string;
+  }) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/llm-config`, {
+      method: "PUT",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "保存 LLM 配置失败"));
+    return res.json();
+  },
+
+  // ─── 飞书 Webhook 配置 ──────────────────────────────────────────
+
+  async getFeishuConfig() {
+    const res = await fetch(`${API_BASE}/api/v1/auth/feishu-config`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取飞书配置失败");
+    return res.json();
+  },
+
+  async updateFeishuConfig(body: { webhook_url: string; enabled: boolean; webhook_secret?: string }) {
+    const res = await fetch(`${API_BASE}/api/v1/auth/feishu-config`, {
+      method: "PUT",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "保存飞书配置失败"));
+    return res.json();
+  },
+
+  async testFeishuConfig() {
+    const res = await fetch(`${API_BASE}/api/v1/auth/feishu-config/test`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "飞书测试告警发送失败"));
+    return res.json() as Promise<{ status: string }>;
+  },
+
+  // ─── 长期记忆 ───────────────────────────────────────────────────
+
+  async listMemoryFacts(factType?: string, status?: string) {
+    const params = new URLSearchParams();
+    if (factType) params.set("fact_type", factType);
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    const res = await fetch(`${API_BASE}/api/v1/memory/facts${qs ? `?${qs}` : ""}`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取记忆列表失败");
+    return res.json();
+  },
+
+  async createDirectMemory(body: { fact_type: string; text: string }) {
+    const res = await fetch(`${API_BASE}/api/v1/memory/facts/direct`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "创建记忆失败"));
+    return res.json();
+  },
+
+  async confirmMemoryFact(factId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/memory/facts/${factId}/confirm`, {
+      method: "PUT", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("确认记忆失败");
+    return res.json();
+  },
+
+  async rejectMemoryFact(factId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/memory/facts/${factId}/reject`, {
+      method: "PUT", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("拒绝记忆失败");
+    return res.json();
+  },
+
+  async deleteMemoryFact(factId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/memory/facts/${factId}`, {
+      method: "DELETE", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("删除记忆失败");
+    return res.json();
+  },
+
+  // ─── 定时科普任务 ───────────────────────────────────────────────
+
+  async listScheduledTasks() {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取定时任务失败");
+    return res.json();
+  },
+
+  async createScheduledTask(body: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "创建任务失败"));
+    return res.json();
+  },
+
+  async updateScheduledTask(taskId: string, body: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}`, {
+      method: "PUT",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("更新任务失败");
+    return res.json();
+  },
+
+  async deleteScheduledTask(taskId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}`, {
+      method: "DELETE", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("删除任务失败");
+    return;
+  },
+
+  async toggleScheduledTask(taskId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}/toggle`, {
+      method: "POST", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("切换状态失败");
+    return res.json();
+  },
+
+  async parseSchedule(text: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/parse`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error("解析时间失败");
+    return res.json() as Promise<{ cron: string; topic: string; description: string }>;
+  },
+
+  /** 获取定时任务执行日志 */
+  async getScheduledTaskLogs(taskId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}/logs`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取任务日志失败");
+    return res.json() as Promise<Array<{
+      id: string;
+      task_id: string;
+      content: string;
+      status: string;
+      error_message: string;
+      executed_at: string;
+    }>>;
+  },
+
+  /** 手动执行定时任务 */
+  async executeScheduledTask(taskId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}/execute`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("执行任务失败");
+    return res.json() as Promise<{ status: string; content?: string; error?: string }>;
+  },
+
+  /** 获取定时任务未读计数 */
+  async getScheduledTaskUnread() {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/unread`, {
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("获取未读计数失败");
+    return res.json() as Promise<{ total_unread: number; task_unreads: Record<string, number> }>;
+  },
+
+  /** 标记单个任务为已读 */
+  async markScheduledTaskRead(taskId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/${taskId}/read`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("标记已读失败");
+    return res.json();
+  },
+
+  /** 标记所有定时任务为已读 */
+  async markAllScheduledTasksRead() {
+    const res = await fetch(`${API_BASE}/api/v1/scheduled-tasks/read-all`, {
+      method: "POST",
+      headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("标记全部已读失败");
+    return res.json();
+  },
+
+  // ─── 知识库检索 ─────────────────────────────────────────────────
+
+  async listKnowledgeDocuments(limit = 50, offset = 0) {
+    const res = await fetch(`${API_BASE}/api/v1/rag/documents?limit=${limit}&offset=${offset}`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取文档列表失败");
+    return res.json();
+  },
+
+  async deleteKnowledgeDocument(docId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/rag/documents/${docId}`, {
+      method: "DELETE", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error("删除文档失败");
+    return res.json();
+  },
+
+  async ingestKnowledgeFile(file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/rag/ingest-file`, {
+      method: "POST", headers: withAuthHeaders(), body: form,
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "文件入库失败"));
+    return res.json();
+  },
+
+  async searchKnowledge(query: string, topK = 5): Promise<{
+    query: string;
+    result: Array<{ content: string; metadata: Record<string, unknown>; score: number }>;
+    params: { top_k: number; score_threshold: number; use_mmr: boolean };
+  }> {
+    const res = await fetch(`${API_BASE}/api/v1/rag/search?q=${encodeURIComponent(query)}&top_k=${topK}`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "检索失败"));
+    return res.json();
+  },
+
+  // ─── 工具/MCP 管理 ─────────────────────────────────────────────
+
+  async checkSkillHealth(skillId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/skills/${skillId}/health`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("健康检查失败");
+    return res.json();
+  },
+
+  async testSkill(skillId: string, input: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/skills/${skillId}/test`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) throw new Error("测试调用失败");
+    return res.json();
+  },
+
+  async testBuiltinTool(tool: string, params: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/skills/builtin/tools/test`, {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ tool, params }),
+    });
+    if (!res.ok) throw new Error("内置工具调用失败");
+    return res.json();
+  },
+
+  async listMCPServices() {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error("获取 MCP 服务失败");
+    return res.json();
+  },
+
+  async createMCPServer(body: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers`, {
+      method: "POST", headers: withAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "MCP 服务连接失败"));
+    return res.json();
+  },
+
+  async discoverMCPServer(serverKey: string) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/${encodeURIComponent(serverKey)}/discover`, {
+      method: "POST", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "MCP 工具发现失败"));
+    return res.json();
+  },
+
+  async checkMCPServerHealth(serverKey: string) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/${encodeURIComponent(serverKey)}/health`, {
+      method: "POST", headers: withAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "MCP 健康检测失败"));
+    return res.json();
+  },
+
+  async listMCPServerTools(serverKey: string) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/${encodeURIComponent(serverKey)}/tools`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "获取 MCP 工具失败"));
+    return res.json();
+  },
+
+  async invokeMCPServerTool(serverKey: string, body: Record<string, unknown>) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/${encodeURIComponent(serverKey)}/invoke`, {
+      method: "POST", headers: withAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "MCP 工具调用失败"));
+    return res.json();
+  },
+
+  async deleteMCPServer(serverKey: string) {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/${encodeURIComponent(serverKey)}`, { method: "DELETE", headers: withAuthHeaders() });
+    if (!res.ok && res.status !== 204) throw new Error(await readErrorMessage(res, "删除 MCP 服务失败"));
+  },
+
+  async listTools() {
+    const res = await fetch(`${API_BASE}/api/v1/mcp-servers/tools/all`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "获取工具列表失败"));
+    return res.json();
+  },
+
+  async updateSkillBindings(skillId: string, toolIds: string[]) {
+    const res = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillId)}/bindings`, {
+      method: "PUT", headers: withAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ tool_ids: toolIds }),
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "更新 Skill 工具绑定失败"));
+    return res.json();
+  },
+
+  async listSkillBindings(skillId: string) {
+    const res = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillId)}/bindings`, { headers: withAuthHeaders() });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "获取 Skill 工具绑定失败"));
+    return res.json();
+  },
+
+  async installSkillPackage(file: File) {
+    const form = new FormData(); form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/v1/skills/packages/install`, { method: "POST", headers: withAuthHeaders(), body: form });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "安装 Skill 包失败"));
+    return res.json();
+  },
 };
+
+export interface KGNode {
+  id: string;
+  type: string;
+  label: string;
+  data: Record<string, unknown>;
+}
+
+export interface KGEdge {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  type: string;
+}

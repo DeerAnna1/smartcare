@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     String, Text, Boolean, DateTime, Float,
-    ForeignKey, Integer
+    ForeignKey, Integer, UniqueConstraint
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -26,6 +26,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, default="")
     profile: Mapped[str] = mapped_column(Text, default="{}")
     preferences: Mapped[str] = mapped_column(Text, default="{}")
+    role: Mapped[str] = mapped_column(String(32), default="user", index=True)  # user | admin
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     sessions: Mapped[list["ConsultationSession"]] = relationship(back_populates="user")
@@ -44,7 +45,11 @@ class ConsultationSession(Base):
     triage_level: Mapped[str] = mapped_column(String(32), default="observe")
     raw_messages: Mapped[str] = mapped_column(Text, default="[]")
     extracted_fields: Mapped[str] = mapped_column(Text, default="{}")
+    clinical_memory: Mapped[str] = mapped_column(Text, default="{}")
     summary: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)  # 乐观锁版本号
+    active_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 当前活跃的 Agent run ID
+    active_run_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -52,6 +57,37 @@ class ConsultationSession(Base):
 
     user: Mapped["User"] = relationship(back_populates="sessions")
     events: Mapped[list["HealthEvent"]] = relationship(back_populates="session")
+    messages: Mapped[list["ConversationMessage"]] = relationship(back_populates="session")
+
+
+# ─── ConversationMessage ───────────────────────────────────────────────────────
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    session_id: Mapped[str] = mapped_column(ForeignKey("consultation_sessions.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)  # 会话内序号
+    parent_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    role: Mapped[str] = mapped_column(String(16))  # user|assistant|system|tool
+    content_json: Mapped[str] = mapped_column(Text, default="{}")  # JSON 内容
+    status: Mapped[str] = mapped_column(String(16), default="completed")  # pending|streaming|completed|failed|cancelled
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 幂等键
+    model_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    token_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped["ConsultationSession"] = relationship(back_populates="messages")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "client_request_id", name="uq_conversation_request"),
+        {"sqlite_autoincrement": True},
+    )
 
 
 # ─── HealthEvent ─────────────────────────────────────────────────────────────
@@ -167,6 +203,9 @@ class SkillPackage(Base):
     source_url: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[str] = mapped_column(String(32), default="1.0.0")
     manifest_json: Mapped[str] = mapped_column(Text, default="{}")
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    source_scope: Mapped[str] = mapped_column(String(32), default="custom")  # public|custom
+    package_path: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -174,6 +213,72 @@ class SkillPackage(Base):
     )
 
     logs: Mapped[list["ToolInvocationLog"]] = relationship(back_populates="skill")
+
+
+class MCPServerConfig(Base):
+    """Transport/auth configuration for one independent MCP server."""
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    server_key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    transport: Mapped[str] = mapped_column(String(32), default="http")  # http|sse|stdio
+    url: Mapped[str] = mapped_column(Text, default="")
+    command: Mapped[str] = mapped_column(Text, default="")
+    args_json: Mapped[str] = mapped_column(Text, default="[]")
+    env_json: Mapped[str] = mapped_column(Text, default="{}")
+    headers_json: Mapped[str] = mapped_column(Text, default="{}")
+    oauth_json: Mapped[str] = mapped_column(Text, default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    health_status: Mapped[str] = mapped_column(String(32), default="unknown")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    last_discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ToolDefinition(Base):
+    """A normalized executable tool, independent from procedural Skills."""
+    __tablename__ = "tool_definitions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    tool_key: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    namespace: Mapped[str] = mapped_column(String(128), default="builtin")
+    description: Mapped[str] = mapped_column(Text, default="")
+    input_schema_json: Mapped[str] = mapped_column(Text, default="{}")
+    annotations_json: Mapped[str] = mapped_column(Text, default="{}")
+    provider_type: Mapped[str] = mapped_column(String(32), default="builtin")  # builtin|mcp
+    provider_id: Mapped[str | None] = mapped_column(ForeignKey("mcp_servers.id"), nullable=True, index=True)
+    read_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SkillToolBinding(Base):
+    __tablename__ = "skill_tool_bindings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    skill_id: Mapped[str] = mapped_column(ForeignKey("skill_packages.id"), index=True)
+    tool_id: Mapped[str] = mapped_column(ForeignKey("tool_definitions.id"), index=True)
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    permission: Mapped[str] = mapped_column(String(32), default="allow")
+
+    __table_args__ = (UniqueConstraint("skill_id", "tool_id", name="uq_skill_tool_binding"),)
+
+
+class AgentSkillPolicy(Base):
+    __tablename__ = "agent_skill_policies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    agent_name: Mapped[str] = mapped_column(String(64), index=True)
+    skill_id: Mapped[str] = mapped_column(ForeignKey("skill_packages.id"), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    __table_args__ = (UniqueConstraint("agent_name", "skill_id", name="uq_agent_skill_policy"),)
 
 
 # ─── ToolInvocationLog ────────────────────────────────────────────────────────
@@ -399,3 +504,227 @@ class RegistrationOrder(Base):
 
     schedule: Mapped["DoctorSchedule"] = relationship()
 
+
+# ─── ConsentRecord ──────────────────────────────────────────────────────────
+
+class ConsentRecord(Base):
+    """用户同意记录：追踪用户对各类数据处理的授权状态。"""
+    __tablename__ = "consent_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    consent_type: Mapped[str] = mapped_column(String(64), index=True)
+    # upload_doc | long_term_memory | third_party_model | ocr | device_data
+    policy_version: Mapped[str] = mapped_column(String(32), default="v1")
+    granted: Mapped[bool] = mapped_column(Boolean, default=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── DataExportJob ──────────────────────────────────────────────────────────
+
+class DataExportJob(Base):
+    """用户数据导出任务。"""
+    __tablename__ = "data_export_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | processing | completed | failed
+    object_key: Mapped[str] = mapped_column(Text, default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ─── DeletionJob ────────────────────────────────────────────────────────────
+
+class DeletionJob(Base):
+    """用户账户删除任务。"""
+    __tablename__ = "deletion_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | processing | completed | failed
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── M4: MemoryFact ────────────────────────────────────────────────────────
+
+class MemoryFact(Base):
+    """长期健康记忆事实。"""
+    __tablename__ = "memory_facts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    subject_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fact_type: Mapped[str] = mapped_column(String(32), index=True)
+    # allergy | condition | medication | procedure | preference | family_history | other
+    value_json: Mapped[str] = mapped_column(Text, default="{}")
+    source_type: Mapped[str] = mapped_column(String(32), default="user_message")
+    # user_message | health_record | lab_report | device | clinician
+    source_id: Mapped[str] = mapped_column(String(128), default="")
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    status: Mapped[str] = mapped_column(String(32), default="proposed", index=True)
+    # proposed | confirmed | rejected | superseded | expired
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    supersedes_fact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+# ─── M5: Knowledge Domain ──────────────────────────────────────────────────
+
+class KnowledgeDocument(Base):
+    """知识库文档元数据。"""
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    title: Mapped[str] = mapped_column(Text, default="")
+    source_type: Mapped[str] = mapped_column(String(64), default="manual")
+    # manual | upload | api | public_corpus
+    source_uri: Mapped[str] = mapped_column(Text, default="")
+    scope: Mapped[str] = mapped_column(String(64), default="public_medical")
+    # public_medical | org_{tenant_id} | user_{user_id}
+    version: Mapped[str] = mapped_column(String(32), default="1.0")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(32), default="uploaded")
+    # uploaded | parsing | parsed | chunking | embedding | validating | published | failed
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeChunk(Base):
+    """知识库文档切块。"""
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text, default="")
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section: Mapped[str] = mapped_column(String(256), default="")
+    checksum: Mapped[str] = mapped_column(String(64), default="")
+    embedding_status: Mapped[str] = mapped_column(String(32), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IngestionJob(Base):
+    """知识库摄入任务。"""
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | processing | completed | failed
+    current_stage: Mapped[str] = mapped_column(String(32), default="")
+    # parsing | chunking | embedding | validating
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ─── M6: MediaAsset ────────────────────────────────────────────────────────
+
+class MediaAsset(Base):
+    """多媒体资产。"""
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    object_key: Mapped[str] = mapped_column(Text, default="")
+    mime_type: Mapped[str] = mapped_column(String(128), default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    checksum: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(32), default="uploaded")
+    # uploaded | scanning | clean | infected | processing | ready | failed
+    malware_scan_status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | clean | infected | error
+    derived_assets: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── M7: ToolRun ───────────────────────────────────────────────────────────
+
+class ToolRun(Base):
+    """工具执行记录（统一 Tool Gateway 审计）。"""
+    __tablename__ = "tool_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String(128), index=True)
+    tool_version: Mapped[str] = mapped_column(String(32), default="1.0")
+    request_json: Mapped[str] = mapped_column(Text, default="{}")
+    response_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | confirmed | running | success | failed | cancelled | timeout
+    idempotency_key: Mapped[str] = mapped_column(String(128), default="", index=True)
+    confirmation_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_reason: Mapped[str] = mapped_column(Text, default="")
+    external_ref: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ─── M8: SafetyRule ────────────────────────────────────────────────────────
+
+class SafetyRule(Base):
+    """版本化安全规则集。"""
+    __tablename__ = "safety_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    rule_type: Mapped[str] = mapped_column(String(64), index=True)
+    # red_flag | output_constraint | iot_threshold | specialty_strategy
+    name: Mapped[str] = mapped_column(String(256), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    pattern: Mapped[str] = mapped_column(Text, default="")  # JSON pattern or regex
+    severity: Mapped[str] = mapped_column(String(32), default="high")
+    # critical | high | medium | low
+    action: Mapped[str] = mapped_column(String(64), default="flag")
+    # flag | block | escalate | handoff
+    version: Mapped[str] = mapped_column(String(32), default="1.0")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── M9: EvalRun ───────────────────────────────────────────────────────────
+
+class EvalRun(Base):
+    """评测运行记录。"""
+    __tablename__ = "eval_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    run_name: Mapped[str] = mapped_column(String(128), default="")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    # pending | running | completed | failed
+    model_version: Mapped[str] = mapped_column(String(64), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+    graph_version: Mapped[str] = mapped_column(String(32), default="")
+    tool_version: Mapped[str] = mapped_column(String(32), default="")
+    knowledge_manifest: Mapped[str] = mapped_column(Text, default="{}")
+    total_cases: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    average_score: Mapped[float] = mapped_column(Float, default=0.0)
+    dimension_scores: Mapped[str] = mapped_column(Text, default="{}")
+    report_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

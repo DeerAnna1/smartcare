@@ -24,6 +24,10 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+class EmptyLLMResponseError(RuntimeError):
+    """The upstream request succeeded but produced neither text nor tool calls."""
+
+
 _RETRYABLE_HTTPX = (
     httpx.ConnectError,
     httpx.ReadTimeout,
@@ -34,6 +38,8 @@ _RETRYABLE_HTTPX = (
 
 
 def _should_retry_exception(exc: BaseException) -> bool:
+    if isinstance(exc, EmptyLLMResponseError):
+        return True
     if isinstance(exc, _RETRYABLE_HTTPX):
         return True
     # httpx 5xx -> 重试；4xx 不重试

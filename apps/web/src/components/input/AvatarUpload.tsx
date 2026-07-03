@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface AvatarUploadProps {
   onAvatarUploaded?: (url: string) => void;
@@ -10,6 +11,7 @@ interface AvatarUploadProps {
 }
 
 export default function AvatarUpload({ onAvatarUploaded, onError, currentAvatarUrl }: AvatarUploadProps) {
+  const { t } = useLang();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentAvatarUrl || null);
@@ -85,7 +87,7 @@ export default function AvatarUpload({ onAvatarUploaded, onError, currentAvatarU
             </span>
           </div>
         </div>
-        {isUploading && <p className="text-xs text-center text-on-surface-variant mt-2">上传中...</p>}
+        {isUploading && <p className="text-xs text-center text-on-surface-variant mt-2">{t("上传中...", "Uploading...")}</p>}
       </button>
     </div>
   );

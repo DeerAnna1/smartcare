@@ -12,7 +12,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
-from app.models.models import HealthRecord, User
+from app.models.models import HealthEvent, HealthRecord, User
 from app.schemas.schemas import (
     CreateRecordRequest,
     ExportEhrPdfRequest,
@@ -44,6 +44,16 @@ def _safe_parse_dt(raw: str | None) -> datetime | None:
         return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _set_ehr_tag(record: HealthRecord, synced: bool) -> None:
+    try:
+        tags = json.loads(record.tags or "[]")
+    except json.JSONDecodeError:
+        tags = []
+    tags = [tag for tag in tags if tag not in ("待同步EHR", "已同步EHR")]
+    tags.append("已同步EHR" if synced else "待同步EHR")
+    record.tags = json.dumps(tags, ensure_ascii=False)
 
 
 @router.get("/profile", response_model=HealthArchiveProfileResponse)
@@ -107,22 +117,25 @@ async def list_records(
     user: User = Depends(get_current_user_required),
 ):
     result = await db.execute(
-        select(HealthRecord)
+        select(HealthRecord, HealthEvent.created_at.label("event_created_at"))
+        .outerjoin(HealthEvent, HealthEvent.id == HealthRecord.event_id)
         .where(HealthRecord.user_id == user.id)
         .order_by(HealthRecord.created_at.desc())
     )
-    records = result.scalars().all()
+    rows = result.all()
     return [
         RecordResponse(
-            id=r.id,
-            title=r.title,
-            department=r.department,
-            sync_status=r.sync_status,
-            tags=json.loads(r.tags),
-            event_id=r.event_id,
-            created_at=r.created_at,
+            id=record.id,
+            title=record.title,
+            department=record.department,
+            sync_status=record.sync_status,
+            tags=json.loads(record.tags),
+            event_id=record.event_id,
+            # Event-linked archives display the original execution time.
+            # Standalone health records retain their own creation time.
+            created_at=event_created_at or record.created_at,
         )
-        for r in records
+        for record, event_created_at in rows
     ]
 
 
@@ -169,6 +182,27 @@ async def sync_record(
         raise HTTPException(status_code=404, detail="档案不存在")
 
     record.sync_status = "synced"
+    _set_ehr_tag(record, synced=True)
+    await db.flush()
+    return {"success": True, "record_id": record.id, "sync_status": record.sync_status}
+
+
+@router.delete("/{record_id}/sync")
+async def unsync_record(
+    record_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_required),
+):
+    """取消同步，使该健康档案不再参与 EHR 汇总。"""
+    result = await db.execute(
+        select(HealthRecord).where(HealthRecord.id == record_id, HealthRecord.user_id == user.id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="档案不存在")
+
+    record.sync_status = "pending"
+    _set_ehr_tag(record, synced=False)
     await db.flush()
     return {"success": True, "record_id": record.id, "sync_status": record.sync_status}
 
@@ -187,6 +221,7 @@ async def batch_sync_records(
 
     for record in records:
         record.sync_status = "synced"
+        _set_ehr_tag(record, synced=True)
 
     await db.flush()
     return {
@@ -204,6 +239,7 @@ async def generate_ehr_summary(
     result = await db.execute(
         select(HealthRecord)
         .where(HealthRecord.user_id == user.id)
+        .where(HealthRecord.sync_status == "synced")
         .order_by(HealthRecord.created_at.desc())
     )
     records = result.scalars().all()

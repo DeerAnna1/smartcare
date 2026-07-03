@@ -69,7 +69,7 @@ export default function RecordsPage() {
 	};
 
 	return (
-		<div className="p-8">
+		<div className="p-4 sm:p-6 lg:p-8 min-w-0">
 			<div className="mb-6">
 				<div className="flex items-center gap-2 text-sm text-on-surface-variant mb-2">
 					<span>{t("云端医护平台", "Cloud Medical Platform")}</span>
@@ -77,14 +77,14 @@ export default function RecordsPage() {
 					<span className="text-on-surface font-semibold">{t("历史会话", "History")}</span>
 				</div>
 				<div>
-					<h1 className="font-headline font-bold text-3xl text-on-surface">{t("历史会话", "Session History")}</h1>
+					<h1 className="font-headline font-bold text-2xl sm:text-3xl text-on-surface">{t("历史会话", "Session History")}</h1>
 					<p className="text-on-surface-variant text-sm mt-1">
 						{t("点击会话可直接进入对应执行控制台；未归档事件可在列表中直接归档到健康档案。", "Click a session to enter the execution console; unarchived events can be archived to health records directly.")}
 					</p>
 				</div>
 			</div>
 
-			<div className="grid grid-cols-3 gap-4 mb-6">
+			<div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
 				<div className="bg-surface-container-lowest rounded-2xl p-6 border-l-4 border-primary shadow-sm">
 					<p className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2">{t("历史事件数", "Total Events")}</p>
 					<p className="font-headline font-bold text-4xl text-primary">{events.length}</p>
@@ -118,10 +118,10 @@ export default function RecordsPage() {
 							const isArchiving = archivingId === event.event_id;
 
 							return (
-								<div key={event.event_id} className="flex items-center gap-5 px-6 py-4 hover:bg-surface-container-low transition-all">
+								<div key={event.event_id} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 px-4 sm:px-6 py-4 hover:bg-surface-container-low transition-all min-w-0">
 									<button
 										onClick={() => router.push(`/execution?eventId=${event.event_id}`)}
-										className="flex items-center gap-5 flex-1 text-left"
+										className="flex items-center gap-3 sm:gap-5 flex-1 text-left min-w-0 w-full"
 									>
 										<div className="w-12 h-12 rounded-2xl bg-primary-fixed/60 flex items-center justify-center shrink-0">
 											<span className="material-symbols-outlined text-on-surface" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -129,29 +129,26 @@ export default function RecordsPage() {
 											</span>
 										</div>
 
-										<div className="flex-1">
-											<div className="flex items-center gap-3">
-												<p className="text-xs text-on-surface-variant">{createdAt}</p>
-												<p className="text-xs text-on-surface-variant">{event.recommended_department || t("未分科", "Uncategorized")}</p>
-												<p className="text-xs text-on-surface-variant">{event.triage_level}</p>
+										<div className="flex-1 min-w-0">
+											<div className="flex items-center gap-2 flex-wrap">
+												<p className="text-xs text-on-surface-variant shrink-0">{createdAt}</p>
+												<p className="text-xs text-on-surface-variant hidden sm:inline">{event.recommended_department || t("未分科", "Uncategorized")}</p>
+												<p className="text-xs text-on-surface-variant hidden sm:inline">{event.triage_level}</p>
 											</div>
-											<p className="font-semibold text-on-surface mt-0.5">{event.chief_complaint || event.triage_level || t("健康事件", "Health Event")}</p>
+											<p className="font-semibold text-on-surface mt-0.5 truncate">{event.chief_complaint || event.triage_level || t("健康事件", "Health Event")}</p>
 										</div>
 									</button>
 
-									<div className="flex items-center gap-2 shrink-0">
-										<span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+									<div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+										<span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
 											event.archived ? "bg-secondary-container/40 text-secondary" : "bg-error-container/40 text-error"
 										}`}>
 											{event.archived ? t("已归档", "Archived") : t("未归档", "Not Archived")}
 										</span>
-									</div>
-
-									<div className="flex items-center gap-2 shrink-0">
 										<button
 											onClick={() => handleArchive(event.event_id)}
 											disabled={Boolean(event.archived) || isArchiving}
-											className="px-4 py-1.5 bg-primary text-on-primary rounded-xl text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+											className="px-3 py-1 bg-primary text-on-primary rounded-xl text-[10px] sm:text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50"
 										>
 											{event.archived ? t("已归档", "Archived") : isArchiving ? t("归档中...", "Archiving...") : t("归档", "Archive")}
 										</button>

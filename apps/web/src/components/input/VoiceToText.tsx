@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 
 interface VoiceToTextProps {
   onTextReceived?: (text: string) => void;
@@ -12,6 +13,7 @@ export default function VoiceToText({
   onTextReceived,
   onStateChange,
 }: VoiceToTextProps) {
+  const { t } = useLang();
   const [state, setState] = useState<"idle" | "recording" | "processing" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -46,7 +48,7 @@ export default function VoiceToText({
     const dataArray = new Uint8Array(bufferLength);
 
     const style = getComputedStyle(document.documentElement);
-    const primary = style.getPropertyValue("--color-primary").trim() || "#0040e0";
+    const primary = style.getPropertyValue("--color-primary").trim() || "#b45309";
 
     const draw = () => {
       animFrameRef.current = requestAnimationFrame(draw);
@@ -75,6 +77,62 @@ export default function VoiceToText({
     };
 
     draw();
+  };
+
+  // Convert audio blob to WAV format (MiMo ASR only supports wav/mp3/mpeg)
+  const convertToWav = async (blob: Blob): Promise<Blob> => {
+    const audioContext = new AudioContext();
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const numChannels = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const format = 1; // PCM
+    const bitsPerSample = 16;
+
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const dataLength = audioBuffer.length * blockAlign;
+    const buffer = new ArrayBuffer(44 + dataLength);
+    const view = new DataView(buffer);
+
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + dataLength, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(36, "data");
+    view.setUint32(40, dataLength, true);
+
+    // Interleave audio channels
+    const channels: Float32Array[] = [];
+    for (let i = 0; i < numChannels; i++) {
+      channels.push(audioBuffer.getChannelData(i));
+    }
+
+    let offset = 44;
+    for (let i = 0; i < audioBuffer.length; i++) {
+      for (let ch = 0; ch < numChannels; ch++) {
+        const sample = Math.max(-1, Math.min(1, channels[ch][i]));
+        const val = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        view.setInt16(offset, val, true);
+        offset += 2;
+      }
+    }
+
+    await audioContext.close();
+    return new Blob([buffer], { type: "audio/wav" });
   };
 
   const startRecording = async () => {
@@ -109,14 +167,15 @@ export default function VoiceToText({
         onStateChange?.("processing");
 
         try {
-          const ext = mimeType.includes("webm") ? ".webm" : ".ogg";
-          const file = new File([blob], `recording_${Date.now()}${ext}`, { type: mimeType });
+          // Convert webm to wav for MiMo ASR compatibility
+          const wavBlob = await convertToWav(blob);
+          const file = new File([wavBlob], `recording_${Date.now()}.wav`, { type: "audio/wav" });
           const result = await api.uploadAudio(file);
           onTextReceived?.(result.text);
           setState("idle");
           onStateChange?.("idle");
         } catch (err) {
-          setError(err instanceof Error ? err.message : "语音转写失败");
+          setError(err instanceof Error ? err.message : t("语音转写失败", "Voice transcription failed"));
           setState("error");
           onStateChange?.("error");
         }
@@ -128,7 +187,7 @@ export default function VoiceToText({
       onStateChange?.("recording");
       drawWaveform();
     } catch {
-      setError("无法访问麦克风，请检查浏览器权限设置");
+      setError(t("无法访问麦克风，请检查浏览器权限设置", "Cannot access microphone, please check browser permission settings"));
       setState("error");
       onStateChange?.("error");
     }
@@ -179,9 +238,9 @@ export default function VoiceToText({
       {state !== "recording" && (
         <div className="flex-1">
           <p className="text-sm font-medium text-on-surface">
-            {state === "idle" && "点击麦克风开始录音"}
-            {state === "processing" && "正在转写..."}
-            {state === "error" && (error || "录音出错，请重试")}
+            {state === "idle" && t("点击麦克风开始录音", "Click microphone to start recording")}
+            {state === "processing" && t("正在转写...", "Transcribing...")}
+            {state === "error" && (error || t("录音出错，请重试", "Recording error, please retry"))}
           </p>
         </div>
       )}

@@ -123,11 +123,19 @@ def _get_client() -> chromadb.ClientAPI:
 def _get_collection() -> chromadb.Collection:
     client = _get_client()
     embedding_fn = _get_embedding_function()
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-        embedding_function=embedding_fn,
-    )
+    try:
+        return client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+            embedding_function=embedding_fn,
+        )
+    except (ValueError, Exception):
+        # Embedding function conflict — collection was created with a different function
+        # Return collection without embedding function; queries will use query_embeddings directly
+        return client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
 
 
 def _cosine_similarity_to_distance(similarity: float) -> float:
@@ -192,13 +200,13 @@ def _mmr_rerank(
     return selected
 
 
-def retrieve(
+def search_documents(
     query: str,
     top_k: int = 3,
     score_threshold: float | None = None,
     use_mmr: bool | None = None,
-) -> str:
-    """检索与 query 最相关的医学知识片段。
+) -> list[dict]:
+    """检索与 query 最相关的医学知识片段，返回结构化结果。重点供 API 使用。
 
     Args:
         query: 查询文本
@@ -208,7 +216,7 @@ def retrieve(
     """
     collection = _get_collection()
     if collection.count() == 0:
-        return ""
+        return []
 
     if score_threshold is None:
         score_threshold = settings.RAG_SCORE_THRESHOLD
@@ -217,19 +225,24 @@ def retrieve(
 
     n_results = min(top_k * 3, collection.count())  # fetch more for MMR/filtering
 
+    # Use query_embeddings to bypass collection's embedding function and avoid dimension mismatch
+    embedding_fn = _get_embedding_function()
+    query_embedding = embedding_fn.encode_query(query)
+
     results = collection.query(
-        query_texts=[query],
+        query_embeddings=[query_embedding],
         n_results=n_results,
         include=["documents", "metadatas", "distances", "embeddings"],
     )
 
     if not results or not results["documents"] or not results["documents"][0]:
-        return ""
+        return []
 
     docs = results["documents"][0]
     metadatas = results["metadatas"][0] if results["metadatas"] else [{}] * len(docs)
     distances = results["distances"][0] if results["distances"] else [0.0] * len(docs)
-    embeddings = results["embeddings"][0] if results.get("embeddings") else None
+    raw_embeddings = results.get("embeddings")
+    embeddings = raw_embeddings[0] if raw_embeddings is not None and len(raw_embeddings) > 0 else None
 
     # Filter by score threshold (ChromaDB cosine distance: lower = more similar)
     max_distance = _cosine_similarity_to_distance(score_threshold)
@@ -240,7 +253,7 @@ def retrieve(
     ]
 
     if not filtered:
-        return ""
+        return []
 
     # MMR re-ranking if enabled and we have embeddings
     if use_mmr and embeddings is not None and len(embeddings) > 0 and len(filtered) > top_k:
@@ -266,17 +279,51 @@ def retrieve(
         reranked = reranker.rerank(query, docs_for_rerank, top_k=settings.RAG_RERANKER_TOP_K)
         filtered = [filtered[i] for i, _ in reranked]
 
+    return [
+        {
+            "content": doc,
+            "metadata": meta or {},
+            "score": round(max(0.0, min(1.0, 1.0 - float(dist))), 3),
+        }
+        for _, doc, meta, dist in filtered
+    ]
+
+
+def retrieve(
+    query: str,
+    top_k: int = 3,
+    score_threshold: float | None = None,
+    use_mmr: bool | None = None,
+) -> str:
+    """检索知识并格式化为适合注入 LLM 上下文的文本。"""
+    results = search_documents(
+        query,
+        top_k=top_k,
+        score_threshold=score_threshold,
+        use_mmr=use_mmr,
+    )
+
     lines = []
-    for _, doc, meta, dist in filtered:
+    for item in results:
+        doc = item["content"]
+        meta = item["metadata"]
         category = meta.get("category", "医学知识")
         source = meta.get("source", "")
-        similarity = round(1.0 - dist, 3)
+        similarity = item["score"]
         prefix = f"[{category}]"
         if source:
             prefix += f" ({source})"
         lines.append(f"{prefix} (相似度:{similarity}) {doc}")
 
     return "\n---\n".join(lines)
+
+
+def retrieve_with_images(
+    query: str,
+    top_k: int = 3,
+) -> str:
+    """检索文本及已完成 OCR/标题索引的图片知识。"""
+    return retrieve(query, top_k=top_k)
 
 
 def add_documents(
@@ -315,13 +362,24 @@ def add_documents(
     total = len(documents)
     for start in range(0, total, MAX_BATCH):
         end = min(start + MAX_BATCH, total)
+        batch_documents = documents[start:end]
+        # Always provide embeddings explicitly. This keeps writes consistent even
+        # when an existing Chroma collection cannot reattach our custom function.
+        batch_embeddings = _get_embedding_function()(batch_documents)
         collection.add(
-            documents=documents[start:end],
+            documents=batch_documents,
             metadatas=metadatas[start:end],
             ids=ids[start:end],
+            embeddings=batch_embeddings,
         )
 
     return total
+
+
+def delete_documents_by_metadata(document_id: str) -> None:
+    """删除指定知识库文档对应的全部向量片段。"""
+    collection = _get_collection()
+    collection.delete(where={"document_id": document_id})
 
 
 def get_stats() -> dict:

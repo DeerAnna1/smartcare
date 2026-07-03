@@ -158,21 +158,55 @@ def score_response_quality(response_text: str) -> DimensionScore:
     return DimensionScore(name="response_quality", score=min(1.0, score), details=f"Quality score: {score:.2f}")
 
 
-def score_tool_usage(expected: dict, actual_state: dict) -> DimensionScore:
-    """Score whether the correct tool was called."""
+def score_tool_usage(expected: dict, actual_state: dict, tool_runs: list[dict] | None = None) -> DimensionScore:
+    """Score whether the correct tool was called.
+
+    Args:
+        expected: Expected outcomes from test case.
+        actual_state: Actual state from consultation run.
+        tool_runs: List of tool invocation records, each with keys:
+            - tool_name: str
+            - result_status: str ("success" / "failed")
+            - request_json: str (JSON params)
+    """
     expected_tool = expected.get("tool_called")
     if not expected_tool:
         return DimensionScore(name="tool_usage", score=1.0, details="No tool check needed")
 
-    # Check if tool was invoked (look in state metadata)
-    agent = actual_state.get("current_agent", "")
-    if agent:
-        return DimensionScore(name="tool_usage", score=0.8, details=f"Agent {agent} handled request")
+    runs = tool_runs or []
 
-    return DimensionScore(name="tool_usage", score=0.5, details="Tool usage uncertain")
+    # Filter runs matching the expected tool name
+    matching_runs = [r for r in runs if r.get("tool_name") == expected_tool]
+
+    if not matching_runs:
+        # Expected tool was not called at all
+        any_runs = [r.get("tool_name") for r in runs]
+        if any_runs:
+            return DimensionScore(
+                name="tool_usage", score=0.0,
+                details=f"Expected tool '{expected_tool}' not called; got: {any_runs}"
+            )
+        return DimensionScore(
+            name="tool_usage", score=0.0,
+            details=f"Expected tool '{expected_tool}' not called; no tool invocations recorded"
+        )
+
+    # Check if any matching run succeeded
+    successful = [r for r in matching_runs if r.get("result_status") == "success"]
+    if successful:
+        return DimensionScore(
+            name="tool_usage", score=1.0,
+            details=f"Tool '{expected_tool}' called and succeeded"
+        )
+
+    # Tool was called but failed
+    return DimensionScore(
+        name="tool_usage", score=0.3,
+        details=f"Tool '{expected_tool}' called but all runs failed"
+    )
 
 
-def evaluate_case(case: dict, response_text: str, actual_state: dict) -> CaseResult:
+def evaluate_case(case: dict, response_text: str, actual_state: dict, tool_runs: list[dict] | None = None) -> CaseResult:
     """Evaluate a single test case against expected outcomes."""
     expected = case.get("expected", {})
     case_id = case.get("id", "unknown")
@@ -184,7 +218,7 @@ def evaluate_case(case: dict, response_text: str, actual_state: dict) -> CaseRes
         score_symptom_completeness(expected, response_text),
         score_department_suggestion(expected, response_text),
         score_response_quality(response_text),
-        score_tool_usage(expected, actual_state),
+        score_tool_usage(expected, actual_state, tool_runs),
     ]
 
     # Weighted average

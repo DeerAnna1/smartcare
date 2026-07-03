@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -16,6 +17,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.models import AuditLog, ConsultationSession, HandoffTicket, User, VitalStreamEvent
 from app.schemas.schemas import IoTWebhookRequest
+from app.services.feishu_notifier import get_patient_display_name, resolve_feishu_config, send_feishu_alert
 
 router = APIRouter(prefix="/iot", tags=["iot"])
 settings = get_settings()
@@ -148,6 +150,24 @@ async def _trigger_handoff_from_iot(event: VitalStreamEvent, db: AsyncSession) -
         )
     )
     await db.flush()
+
+    user_result = await db.execute(select(User).where(User.id == event.user_id))
+    user = user_result.scalar_one_or_none()
+    if user is not None:
+        config = resolve_feishu_config(user)
+        if config.enabled and config.webhook_url:
+            asyncio.create_task(
+                send_feishu_alert(
+                    webhook_url=config.webhook_url,
+                    webhook_secret=config.webhook_secret,
+                    patient_name=get_patient_display_name(user),
+                    risk_level="high",
+                    reason="IoT 高风险生命体征自动触发人工接管",
+                    evidence=evidence,
+                    session_id=str(session.id),
+                )
+            )
+
     return {"triggered": True, "ticket_id": ticket.id, "session_id": session.id}
 
 

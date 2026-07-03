@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const navItems = [
-  { icon: "chat", label: "历史问诊", href: "/chat" },
-  { icon: "hub", label: "通用执行", href: "/execution" },
-  { icon: "folder_managed", label: "健康档案", href: "/health-records" },
-  { icon: "monitor_heart", label: "心率模拟", href: "/iot-simulator" },
-  { icon: "auto_awesome", label: "技能管理", href: "/skills" },
-];
+import { useLang } from "@/lib/lang-context";
 
 interface SideNavBarProps {
   agentName?: string;
@@ -22,15 +15,28 @@ interface SideNavBarProps {
 }
 
 export default function SideNavBar({
-  agentName = "医疗智能体",
-  agentStatus = "诊断系统就绪",
+  agentName,
+  agentStatus,
   showNewButton = true,
-  newButtonLabel = "新建咨询",
+  newButtonLabel,
   newButtonHref = "/chat/new",
   collapsed = false,
   onToggleCollapse,
 }: SideNavBarProps) {
+  const { t } = useLang();
   const pathname = usePathname();
+
+  const resolvedAgentName = agentName ?? t("医疗智能体", "Medical Agent");
+  const resolvedAgentStatus = agentStatus ?? t("诊断系统就绪", "Diagnosis System Ready");
+  const resolvedNewButtonLabel = newButtonLabel ?? t("新建咨询", "New Consultation");
+
+  const navItems = [
+    { icon: "chat", label: t("历史问诊", "Consultations"), href: "/chat" },
+    { icon: "hub", label: t("通用执行", "Execution"), href: "/execution" },
+    { icon: "folder_managed", label: t("健康档案", "Health Records"), href: "/health-records" },
+    { icon: "monitor_heart", label: t("心率模拟", "Heart Rate Simulator"), href: "/iot-simulator" },
+    { icon: "handyman", label: t("工具管理", "Tools"), href: "/tools" },
+  ];
   const navIconClass = "material-symbols-outlined text-[20px] leading-none w-5 h-5 flex items-center justify-center";
 
   const isActive = (href: string) => {
@@ -38,7 +44,7 @@ export default function SideNavBar({
     if (href === "/iot-simulator") return pathname.startsWith("/iot-simulator");
     if (href === "/execution") return pathname.startsWith("/execution");
     if (href === "/health-records") return pathname.startsWith("/health-records");
-    if (href === "/skills") return pathname.startsWith("/skills");
+    if (href === "/tools") return pathname.startsWith("/tools") || pathname.startsWith("/skills");
     return pathname === href;
   };
 
@@ -52,7 +58,7 @@ export default function SideNavBar({
         type="button"
         onClick={onToggleCollapse}
         className="absolute left-3 top-3 w-10 h-10 rounded-lg bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all flex items-center justify-center"
-        title={collapsed ? "展开导航栏" : "收起导航栏"}
+        title={collapsed ? t("展开导航栏", "Expand Sidebar") : t("收起导航栏", "Collapse Sidebar")}
       >
         <span className={navIconClass}>
           {collapsed ? "chevron_right" : "chevron_left"}
@@ -70,8 +76,8 @@ export default function SideNavBar({
         </div>
         {!collapsed && (
           <div>
-            <h3 className="font-headline font-bold text-lg text-primary leading-none">{agentName}</h3>
-            <p className="text-xs text-on-surface-variant mt-1">{agentStatus}</p>
+            <h3 className="font-headline font-bold text-lg text-primary leading-none">{resolvedAgentName}</h3>
+            <p className="text-xs text-on-surface-variant mt-1">{resolvedAgentStatus}</p>
           </div>
         )}
       </div>
@@ -83,10 +89,10 @@ export default function SideNavBar({
           className={`w-full py-3 px-4 bg-primary text-on-primary rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg hover:opacity-90 active:scale-95 transition-all mb-5 ${
             collapsed ? "px-0" : ""
           }`}
-          title={newButtonLabel}
+          title={resolvedNewButtonLabel}
         >
           <span className={navIconClass}>add</span>
-          {!collapsed && newButtonLabel}
+          {!collapsed && resolvedNewButtonLabel}
         </Link>
       )}
 
@@ -98,8 +104,8 @@ export default function SideNavBar({
             href={item.href}
             className={`flex items-center px-4 py-3 mx-2 rounded-xl transition-all ${
               isActive(item.href)
-                ? "bg-surface-container-lowest text-primary font-bold shadow-sm"
-                : "text-on-surface-variant font-medium hover:bg-surface-container-lowest/60"
+                ? "bg-primary/8 text-primary font-semibold border-l-2 border-primary"
+                : "text-on-surface-variant font-medium hover:bg-surface-container-lowest/60 border-l-2 border-transparent"
             } ${collapsed ? "justify-center" : "gap-3"}`}
             title={item.label}
           >

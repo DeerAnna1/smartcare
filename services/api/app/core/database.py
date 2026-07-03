@@ -18,7 +18,7 @@ def _ensure_asyncpg_url(url: str) -> str:
 
 _url = _ensure_asyncpg_url(settings.DATABASE_URL)
 _engine_kwargs: dict = {
-    "echo": settings.ENV == "development",
+    "echo": settings.DB_ECHO,
     "pool_pre_ping": True,
 }
 # SQLite (sqlite+aiosqlite) 不支持连接池参数；只对 Postgres 启用

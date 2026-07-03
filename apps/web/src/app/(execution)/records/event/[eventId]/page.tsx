@@ -57,12 +57,12 @@ export default function RecordEventDetailPage() {
   }, [eventId]);
 
   if (loading) {
-    return <div className="p-8 text-on-surface-variant">{t("加载事件详情中...", "Loading event details...")}</div>;
+    return <div className="p-4 sm:p-6 lg:p-8 text-on-surface-variant">{t("加载事件详情中...", "Loading event details...")}</div>;
   }
 
   if (!eventDetail) {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <p className="text-error font-semibold">{t("事件详情不存在或加载失败", "Event details not found or failed to load")}</p>
         <button
           onClick={() => router.push("/records")}
@@ -90,7 +90,7 @@ export default function RecordEventDetailPage() {
   };
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 min-w-0">
       <button
         onClick={() => router.push("/records")}
         className="inline-flex items-center gap-2 text-sm text-on-surface-variant hover:text-primary transition-colors"
@@ -102,7 +102,7 @@ export default function RecordEventDetailPage() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-on-surface-variant uppercase tracking-widest">{t("存档会话 / 事件详情", "Archive Session / Event Details")}</p>
-          <h1 className="font-headline font-bold text-3xl text-on-surface mt-1">{t("健康事件详情", "Health Event Details")}</h1>
+          <h1 className="font-headline font-bold text-2xl sm:text-3xl text-on-surface mt-1">{t("健康事件详情", "Health Event Details")}</h1>
         </div>
         <span className="px-3 py-1 rounded-full bg-primary-container/40 text-primary text-xs font-semibold">
           {eventDetail.status}
@@ -115,7 +115,7 @@ export default function RecordEventDetailPage() {
           <p className="text-on-surface font-semibold mt-1">{eventDetail.chief_complaint || t("无", "None")}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-on-surface-variant">{t("分诊级别", "Triage Level")}</p>
             <p className="text-on-surface mt-1">{eventDetail.triage_level || t("未标记", "Unmarked")}</p>

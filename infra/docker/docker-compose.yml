@@ -39,19 +39,26 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://medhelp:medhelp_secret@postgres:5432/medhelpagent
       REDIS_URL: redis://redis:6379/0
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://yunwu.ai/v1}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://token-plan-cn.xiaomimimo.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_MODEL: ${LLM_MODEL:-mimo-v2-omni}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
       CORS_ORIGINS: "http://localhost:3001,http://localhost:3000"
       ENV: development
+      AUTH_SECRET: ${AUTH_SECRET:-dev-auth-secret-change-me}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret-change-me}
+      FEISHU_ALERT_ENABLED: ${FEISHU_ALERT_ENABLED:-false}
+      FEISHU_WEBHOOK_URL: ${FEISHU_WEBHOOK_URL:-}
+      FEISHU_WEBHOOK_SECRET: ${FEISHU_WEBHOOK_SECRET:-}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-Asia/Shanghai}
+      SCHEDULED_TASK_POLL_SECONDS: ${SCHEDULED_TASK_POLL_SECONDS:-30}
       CONCURRENCY_ENABLED: ${CONCURRENCY_ENABLED:-true}
       CONCURRENCY_MAX_CONCURRENT_REQUESTS: ${CONCURRENCY_MAX_CONCURRENT_REQUESTS:-30}
       CONCURRENCY_MAX_CONCURRENT_LLM_CALLS: ${CONCURRENCY_MAX_CONCURRENT_LLM_CALLS:-15}
       CONCURRENCY_RAG_THREAD_POOL_SIZE: ${CONCURRENCY_RAG_THREAD_POOL_SIZE:-8}
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-/home/apiuser/.cache/huggingface/hub/BAAI/bge-large-zh-v1___5}
-      RAG_RERANKER_ENABLED: ${RAG_RERANKER_ENABLED:-true}
-      RAG_RERANKER_MODEL: ${RAG_RERANKER_MODEL:-/home/apiuser/.cache/huggingface/hub/BAAI/bge-reranker-v2-m3}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
+      RAG_RERANKER_ENABLED: ${RAG_RERANKER_ENABLED:-false}
+      RAG_RERANKER_MODEL: ${RAG_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
       RAG_RERANKER_TOP_K: ${RAG_RERANKER_TOP_K:-3}
     depends_on:
       postgres:
@@ -62,7 +69,8 @@ services:
       - ../../services/api:/app
       - chroma_cache:/home/apiuser/.cache/chroma
       - ../../services/api/models:/home/apiuser/.cache/huggingface/hub
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - ../../tmp:/app/tmp
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
       interval: 30s
@@ -86,7 +94,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 15s

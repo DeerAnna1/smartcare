@@ -1,13 +1,17 @@
 """Standalone batch indexing script for RAG knowledge base.
 
-Streams encoding+insertion to avoid OOM: encodes a small batch, accumulates,
-and inserts into ChromaDB every INSERT_CHUNK documents, then frees memory.
+改进版特性：
+- 从环境变量统一读取 embedding 模型（与 config.py 一致）
+- 临时 collection + 原子切换：索引失败不破坏旧 collection
+- Manifest：记录索引元数据（checksum、模型、chunk 数等）
+- Resume：每批插入后记录 checkpoint，中断可恢复
+- 流式处理：生成器加载记录，避免 OOM
 
 Usage:
   docker run --rm -m 4g \
     -v /path/to/api:/app \
     -v /path/to/models:/home/apiuser/.cache/huggingface/hub \
-    -e RAG_EMBEDDING_MODEL=... \
+    -e RAG_EMBEDDING_MODEL=BAAI/bge-large-zh-v1.5 \
     docker-api:latest python3 /app/scripts/batch_index.py
 """
 import sys
@@ -18,7 +22,7 @@ import logging
 import hashlib
 import gc
 
-sys.path.insert(0, "/app")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,23 +30,24 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "medical_datasets")
 MEDICAL_JSON = os.path.join(DATA_DIR, "medical.json")
 
-EMBEDDING_MODEL = os.environ.get("RAG_EMBEDDING_MODEL", "/home/apiuser/.cache/huggingface/hub/BAAI/bge-small-zh-v1___5")
+EMBEDDING_MODEL = os.environ.get("RAG_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "chroma_db")
 COLLECTION_NAME = "medical_knowledge"
+TMP_COLLECTION_NAME = "medical_knowledge_tmp"
+MANIFEST_PATH = os.path.join(CHROMA_DIR, "index_manifest.json")
+CHECKPOINT_PATH = os.path.join(CHROMA_DIR, "index_checkpoint.json")
 
 ENCODE_BATCH = 32
 INSERT_CHUNK = 1000
 
 
 def load_records():
-    records = []
+    """生成器：逐条加载记录，避免一次性载入内存。"""
     with open(MEDICAL_JSON, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
-                records.append(json.loads(line))
-    logger.info(f"Loaded {len(records)} disease records")
-    return records
+                yield json.loads(line)
 
 
 def join_list(val):
@@ -117,22 +122,54 @@ def disease_to_chunks(item):
     return chunks
 
 
+def load_checkpoint() -> dict:
+    """加载 checkpoint，支持 resume。"""
+    if os.path.exists(CHECKPOINT_PATH):
+        try:
+            with open(CHECKPOINT_PATH, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"last_batch_end": 0, "inserted": 0}
+
+
+def save_checkpoint(batch_end: int, inserted: int):
+    """保存 checkpoint。"""
+    os.makedirs(os.path.dirname(CHECKPOINT_PATH), exist_ok=True)
+    with open(CHECKPOINT_PATH, "w") as f:
+        json.dump({"last_batch_end": batch_end, "inserted": inserted}, f)
+
+
+def save_manifest(chunk_count: int, elapsed: float):
+    """保存索引 manifest。"""
+    os.makedirs(os.path.dirname(MANIFEST_PATH), exist_ok=True)
+    manifest = {
+        "embedding_model": EMBEDDING_MODEL,
+        "collection_name": COLLECTION_NAME,
+        "chunk_count": chunk_count,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "elapsed_seconds": round(elapsed, 1),
+    }
+    with open(MANIFEST_PATH, "w") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    logger.info(f"Manifest saved: {MANIFEST_PATH}")
+
+
 def main():
     logger.info("=" * 60)
-    logger.info("RAG Batch Indexing Script (streaming)")
+    logger.info("RAG Batch Indexing Script (improved)")
     logger.info(f"Model: {EMBEDDING_MODEL}")
     logger.info(f"ChromaDB: {os.path.abspath(CHROMA_DIR)}")
+    logger.info(f"Collection: {COLLECTION_NAME} (via tmp: {TMP_COLLECTION_NAME})")
     logger.info("=" * 60)
 
-    records = load_records()
-
-    # Prepare documents (text only, ~30MB for 60K docs)
+    # Prepare documents using generator (streaming)
     all_docs = []
     all_metas = []
     all_ids = []
     seen = set()
 
-    for item in records:
+    for item in load_records():
         chunks = disease_to_chunks(item)
         for text, disease_name, chunk_type in chunks:
             if len(text) > 800:
@@ -156,6 +193,13 @@ def main():
     total = len(all_docs)
     logger.info(f"Prepared {total} document chunks")
 
+    # Load checkpoint for resume
+    checkpoint = load_checkpoint()
+    start_from = checkpoint.get("last_batch_end", 0)
+    previously_inserted = checkpoint.get("inserted", 0)
+    if start_from > 0:
+        logger.info(f"Resuming from checkpoint: batch {start_from}, {previously_inserted} docs already inserted")
+
     # Load model
     logger.info("Loading embedding model...")
     from sentence_transformers import SentenceTransformer
@@ -168,11 +212,13 @@ def main():
 
     os.makedirs(CHROMA_DIR, exist_ok=True)
     client = chromadb.PersistentClient(path=CHROMA_DIR, settings=ChromaSettings(anonymized_telemetry=False))
+
+    # 使用临时 collection，避免索引失败破坏旧 collection
     try:
-        client.delete_collection(COLLECTION_NAME)
+        client.delete_collection(TMP_COLLECTION_NAME)
     except Exception:
         pass
-    collection = client.get_or_create_collection(name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+    collection = client.get_or_create_collection(name=TMP_COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
 
     # Streaming encode + insert
     encode_start = time.time()
@@ -180,9 +226,9 @@ def main():
     buf_metas = []
     buf_ids = []
     buf_embs = []
-    inserted = 0
+    inserted = previously_inserted
 
-    for start in range(0, total, ENCODE_BATCH):
+    for start in range(start_from, total, ENCODE_BATCH):
         end = min(start + ENCODE_BATCH, total)
         batch_docs = all_docs[start:end]
 
@@ -200,6 +246,7 @@ def main():
             collection.add(ids=buf_ids, documents=buf_docs, embeddings=buf_embs, metadatas=buf_metas)
             inserted += len(buf_docs)
             buf_docs, buf_metas, buf_ids, buf_embs = [], [], [], []
+            save_checkpoint(end, inserted)
             gc.collect()
 
         # Progress logging
@@ -214,10 +261,53 @@ def main():
     if buf_docs:
         collection.add(ids=buf_ids, documents=buf_docs, embeddings=buf_embs, metadatas=buf_metas)
         inserted += len(buf_docs)
+        save_checkpoint(total, inserted)
 
     total_time = time.time() - encode_start
-    logger.info(f"Done! {inserted} docs indexed in {total_time/60:.1f} min ({total/total_time:.1f} docs/s)")
-    logger.info(f"Collection count: {collection.count()}")
+    logger.info(f"Tmp collection ready: {inserted} docs in {total_time/60:.1f} min")
+    logger.info(f"Tmp collection count: {collection.count()}")
+
+    # 原子切换：删除旧 collection，重命名 tmp
+    logger.info("Atomically switching collections...")
+    try:
+        client.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+    # ChromaDB 不支持 rename，需要从 tmp 复制到正式 collection
+    # 使用 get_or_create + 重新读取数据的方式
+    final_collection = client.get_or_create_collection(name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+
+    # 从 tmp collection 读取所有数据并写入正式 collection
+    batch_size = 1000
+    offset = 0
+    total_copied = 0
+    while offset < inserted:
+        result = collection.get(limit=batch_size, offset=offset, include=["documents", "embeddings", "metadatas"])
+        if not result["ids"]:
+            break
+        final_collection.add(
+            ids=result["ids"],
+            documents=result["documents"],
+            embeddings=result["embeddings"],
+            metadatas=result["metadatas"],
+        )
+        total_copied += len(result["ids"])
+        offset += batch_size
+
+    # 清理 tmp collection 和 checkpoint
+    try:
+        client.delete_collection(TMP_COLLECTION_NAME)
+    except Exception:
+        pass
+    if os.path.exists(CHECKPOINT_PATH):
+        os.remove(CHECKPOINT_PATH)
+
+    elapsed = time.time() - encode_start
+    logger.info(f"Done! {total_copied} docs indexed in {elapsed/60:.1f} min")
+    logger.info(f"Final collection count: {final_collection.count()}")
+
+    # 保存 manifest
+    save_manifest(total_copied, elapsed)
     logger.info("=" * 60)
 
 

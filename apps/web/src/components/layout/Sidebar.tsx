@@ -12,7 +12,6 @@ import {
   type StoredUser,
 } from "@/lib/auth";
 import { api, toAbsoluteMediaUrl } from "@/lib/api-client";
-import { useRef as useFileRef } from "react";
 import { useLang } from "@/lib/lang-context";
 
 const navItemsZh = [
@@ -32,9 +31,19 @@ const navItemsZh = [
     ],
   },
   {
+    group: "知识",
+    items: [
+      { href: "/kg", label: "知识图谱", icon: "account_tree" },
+      { href: "/knowledge-base", label: "知识库管理", icon: "library_books" },
+      { href: "/memory", label: "长期记忆", icon: "psychology" },
+      { href: "/scheduled-tasks", label: "定时科普", icon: "schedule" },
+    ],
+  },
+  {
     group: "管理",
     items: [
-      { href: "/skills", label: "技能管理", icon: "auto_awesome" },
+      { href: "/tools", label: "工具管理", icon: "handyman" },
+      { href: "/settings", label: "模型配置", icon: "tune" },
     ],
   },
 ];
@@ -56,9 +65,19 @@ const navItemsEn = [
     ],
   },
   {
+    group: "Knowledge",
+    items: [
+      { href: "/kg", label: "Knowledge Graph", icon: "account_tree" },
+      { href: "/knowledge-base", label: "Knowledge Base", icon: "library_books" },
+      { href: "/memory", label: "Memory", icon: "psychology" },
+      { href: "/scheduled-tasks", label: "Scheduled Tasks", icon: "schedule" },
+    ],
+  },
+  {
     group: "Management",
     items: [
-      { href: "/skills", label: "Skills", icon: "auto_awesome" },
+      { href: "/tools", label: "Tools", icon: "handyman" },
+      { href: "/settings", label: "AI Config", icon: "tune" },
     ],
   },
 ];
@@ -66,9 +85,11 @@ const navItemsEn = [
 interface SidebarProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export default function Sidebar({ collapsed = false, onToggleCollapse }: SidebarProps) {
+export default function Sidebar({ collapsed = false, onToggleCollapse, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { lang } = useLang();
@@ -79,18 +100,44 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   const profileRef = useRef<HTMLDivElement>(null);
   const avatarFileRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [hasScheduledTaskUnread, setHasScheduledTaskUnread] = useState(false);
+  const newChatSequenceRef = useRef(0);
 
   useEffect(() => {
-    const stored = getStoredAuth();
-    if (stored) {
-      setCurrentUser(stored.user);
-      setAvatarUrl(toAbsoluteMediaUrl(stored.user.avatar_url || ""));
-    }
+    const timer = window.setTimeout(() => {
+      const stored = getStoredAuth();
+      if (stored) {
+        setCurrentUser(stored.user);
+        setAvatarUrl(toAbsoluteMediaUrl(stored.user.avatar_url || ""));
+      }
+    }, 0);
     api.getCurrentUser().then((u) => {
       setCurrentUser(u);
       setAvatarUrl(toAbsoluteMediaUrl(u.avatar_url || ""));
     }).catch(() => {});
+    return () => window.clearTimeout(timer);
   }, []);
+
+  // 定期检查定时科普未读状态
+  useEffect(() => {
+    const checkUnread = () => {
+      api.getScheduledTaskUnread()
+        .then((data) => setHasScheduledTaskUnread(data.total_unread > 0))
+        .catch(() => {});
+    };
+    checkUnread();
+    const interval = window.setInterval(checkUnread, 30000); // 每30秒检查一次
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // 进入定时科普页面时刷新未读状态
+  useEffect(() => {
+    if (pathname.startsWith("/scheduled-tasks")) {
+      api.getScheduledTaskUnread()
+        .then((data) => setHasScheduledTaskUnread(data.total_unread > 0))
+        .catch(() => {});
+    }
+  }, [pathname]);
 
   // 点击外部关闭弹窗
   useEffect(() => {
@@ -111,6 +158,11 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
     if (href === "/execution") return pathname.startsWith("/execution");
     if (href === "/health-records") return pathname.startsWith("/health-records");
     if (href === "/skills") return pathname.startsWith("/skills");
+    if (href === "/knowledge-base") return pathname.startsWith("/knowledge-base");
+    if (href === "/memory") return pathname.startsWith("/memory");
+    if (href === "/scheduled-tasks") return pathname.startsWith("/scheduled-tasks");
+    if (href === "/tools") return pathname.startsWith("/tools");
+    if (href === "/settings") return pathname.startsWith("/settings");
     return pathname === href;
   };
 
@@ -154,15 +206,30 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
     }
   };
 
-  return (
+  // 移动端点击导航链接后自动关闭侧边栏
+  const handleNavClick = (event: React.MouseEvent, href: string) => {
+    if (onMobileClose) onMobileClose();
+    if (href === "/chat/new") {
+      event.preventDefault();
+      // A unique URL forces NewChatPage to remount ChatPanel even when the
+      // user is already on /chat/new. The previous server-side run continues.
+      newChatSequenceRef.current += 1;
+      router.push(`/chat/new?new=${newChatSequenceRef.current}`);
+    }
+  };
+
+  const sidebarContent = (
     <aside
       className={cn(
-        "flex-shrink-0 bg-surface-container-lowest h-screen sticky top-0 overflow-y-visible flex flex-col border-r border-outline-variant/20 transition-all duration-300 z-30",
-        collapsed ? "w-[68px]" : "w-60"
+        "fixed inset-y-0 left-0 z-30 flex h-screen h-dvh flex-shrink-0 flex-col bg-surface-container-lowest border-r border-outline-variant/20 transition-all duration-300 md:sticky md:inset-y-auto md:top-0",
+        // 移动端: 固定定位, 宽度固定为 w-60
+        collapsed ? "w-60 md:w-[68px]" : "w-60 md:w-60",
+        // 移动端: 根据 mobileOpen 控制显示/隐藏
+        mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
       {/* Logo + collapse toggle */}
-      <div className="px-4 py-4 flex items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between px-4 py-4">
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
           <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
             <span className="material-symbols-outlined text-[18px] leading-none text-on-primary">
@@ -173,7 +240,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             <div className="min-w-0">
               <span
                 className="font-bold text-base text-on-surface tracking-tight block truncate"
-                style={{ fontFamily: "Manrope, system-ui" }}
               >
                 {lang === "en" ? "ZhiYu" : "智愈"}
               </span>
@@ -183,7 +249,18 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             </div>
           )}
         </Link>
-        {onToggleCollapse && (
+        {/* 移动端显示关闭按钮，桌面端显示折叠按钮 */}
+        {mobileOpen ? (
+          <button
+            onClick={onMobileClose}
+            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors flex-shrink-0"
+            title={lang === "en" ? "Close sidebar" : "关闭侧边栏"}
+          >
+            <span className="material-symbols-outlined text-[18px] leading-none">
+              close
+            </span>
+          </button>
+        ) : onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
             className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container transition-colors flex-shrink-0"
@@ -197,7 +274,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-2 pb-4 space-y-4">
+      <nav className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-2 pb-4">
         {navItems.map((group) => (
           <div key={group.group}>
             {!collapsed && (
@@ -208,33 +285,44 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const active = isActive(item.href);
+                const showBadge = item.href === "/scheduled-tasks" && hasScheduledTaskUnread;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     title={collapsed ? item.label : undefined}
+                    onClick={(event) => handleNavClick(event, item.href)}
                     className={cn(
-                      "flex items-center rounded-xl text-sm transition-all duration-200",
+                      "flex items-center rounded-xl text-sm transition-all duration-200 relative",
                       collapsed ? "justify-center px-0 py-2.5 mx-1" : "gap-2.5 px-3 py-2",
                       active
-                        ? "bg-primary/10 text-primary font-semibold"
-                        : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+                        ? "bg-primary/8 text-primary font-semibold border-l-2 border-primary"
+                        : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface border-l-2 border-transparent"
                     )}
                   >
-                    <span
-                      className={cn(
-                        "material-symbols-outlined text-[20px] leading-none flex-shrink-0",
-                        active ? "text-primary" : "text-on-surface-variant"
+                    <span className="relative flex-shrink-0">
+                      <span
+                        className={cn(
+                          "material-symbols-outlined text-[20px] leading-none",
+                          active ? "text-primary" : "text-on-surface-variant"
+                        )}
+                        style={{
+                          fontVariationSettings: active
+                            ? "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24"
+                            : "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24",
+                        }}
+                      >
+                        {item.icon}
+                      </span>
+                      {showBadge && (
+                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full" />
                       )}
-                      style={{
-                        fontVariationSettings: active
-                          ? "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24"
-                          : "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24",
-                      }}
-                    >
-                      {item.icon}
                     </span>
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && (
+                      <span className="truncate">
+                        {item.label}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -244,7 +332,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
       </nav>
 
       {/* User + Logout */}
-      <div className="border-t border-outline-variant/20 px-2 py-3 space-y-1 relative" ref={profileRef}>
+      <div className="relative shrink-0 space-y-1 border-t border-outline-variant/20 px-2 py-3" ref={profileRef}>
         {currentUser && (
           <button
             type="button"
@@ -278,7 +366,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         {showProfile && currentUser && (
           <div
             className={cn(
-              "absolute bottom-full mb-2 bg-surface-container-lowest rounded-2xl border border-outline-variant/20 shadow-[0_16px_48px_rgba(0,0,0,0.12)] p-4 z-50",
+              "absolute bottom-full mb-2 bg-surface-container-lowest rounded-2xl border border-outline-variant/15 shadow-lg p-4 z-50",
               collapsed ? "left-[calc(100%+8px)] bottom-0 w-72" : "left-2 right-2 w-auto"
             )}
           >
@@ -313,7 +401,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               </div>
 
               {/* 详细信息 */}
-              <div className="rounded-xl bg-surface-container-lowest px-3 py-2.5 text-xs text-on-surface-variant space-y-1">
+              <div className="rounded-xl bg-surface-container-low px-3 py-2.5 text-xs text-on-surface-variant space-y-1">
                 <p>{lang === "en" ? "Username" : "用户名"}：{currentUser.username}</p>
                 <p>{lang === "en" ? "Registered" : "注册时间"}：{new Date(currentUser.created_at).toLocaleDateString(lang === "en" ? "en-US" : "zh-CN")}</p>
               </div>
@@ -332,5 +420,18 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
 
       </div>
     </aside>
+  );
+
+  return (
+    <>
+      {/* 移动端遮罩层 */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-20 md:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+      {sidebarContent}
+    </>
   );
 }

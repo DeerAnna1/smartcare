@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     AUTO_CREATE_TABLES: bool | None = None
     APP_TITLE: str = "家庭健康双工作区 Agent Platform API"
     APP_VERSION: str = "2.0.0"
+    SKILLS_PATH: str = "skills"
     AUTH_SECRET: str = "dev-auth-secret-change-me"
     WEBHOOK_SECRET: str = "dev-webhook-secret-change-me"
     OCR_PROVIDER: str = "builtin"
@@ -64,14 +65,24 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
 
+    # 飞书告警
+    FEISHU_WEBHOOK_URL: str = ""
+    FEISHU_WEBHOOK_SECRET: str = ""
+    FEISHU_ALERT_ENABLED: bool = False
+
+    # 定时科普
+    SCHEDULER_TIMEZONE: str = "Asia/Shanghai"
+    SCHEDULED_TASK_POLL_SECONDS: int = 30
+
     # DB pool
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_RECYCLE: int = 1800
     DB_POOL_TIMEOUT: int = 30
+    DB_ECHO: bool = False
 
     # LLM 重试 / 超时
-    LLM_REQUEST_TIMEOUT: int = 30
+    LLM_REQUEST_TIMEOUT: int = 60
     LLM_MAX_RETRIES: int = 2
 
     # RAG

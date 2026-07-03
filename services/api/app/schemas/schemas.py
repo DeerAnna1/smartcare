@@ -73,9 +73,12 @@ class SessionResponse(BaseModel):
     session_id: str
     status: str
     created_at: datetime
+    updated_at: datetime | None = None
     chief_complaint: str = ""
     triage_level: str = ""
     skill_tags: list[str] = []
+    latest_message_id: str | None = None
+    generation_status: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -83,6 +86,14 @@ class SessionResponse(BaseModel):
 class MessageItem(BaseModel):
     role: str
     content: str
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    skill_name: str | None = None
+    tool_status: str | None = None
+    tool_args: dict | None = None
+    tool_result: dict | None = None
+    message_id: str | None = None
+    generation_status: str | None = None
 
 
 class SessionDetailResponse(BaseModel):
@@ -105,6 +116,7 @@ class SendMessageRequest(BaseModel):
     content: str | list[ContentPart]
     lang: str | None = None
     media_urls: list[str] | None = None  # 已上传的图片/视频 URL 列表
+    client_request_id: str | None = None  # 客户端请求 ID，用于幂等和重试
 
 
 class SessionMessageResponse(BaseModel):
@@ -289,6 +301,9 @@ class CreateSkillRequest(BaseModel):
     mcp_server: str = ""
     tools: list[dict] = []
     degrade_policy: dict = {}
+    runtime_type: Literal["builtin", "mcp", "manual"] = "manual"
+    builtin_tool: str = ""
+    instructions: str = ""
 
 
 class SkillResponse(BaseModel):
@@ -302,6 +317,12 @@ class SkillResponse(BaseModel):
     version: str
     keywords: list[str]
     trigger_examples: list[str]
+    mcp_server: str = ""
+    tools: list[dict] = []
+    source_type: str = "manual"
+    source_scope: str = "custom"
+    instructions: str = ""
+    package_path: str = ""
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -318,6 +339,27 @@ class InvokeSkillResponse(BaseModel):
     result: dict | None = None
     error: str | None = None
     trace_id: str = ""
+
+
+class MCPServerCreateRequest(BaseModel):
+    server_key: str = Field(min_length=2, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str
+    description: str = ""
+    transport: Literal["http"] = "http"
+    url: str = ""
+    command: str = ""
+    args: list[str] = []
+    headers: dict[str, str] = {}
+    oauth: dict = {}
+    enabled: bool = True
+
+
+class SkillToolBindingRequest(BaseModel):
+    tool_ids: list[str]
+
+
+class AgentSkillPolicyRequest(BaseModel):
+    skill_ids: list[str]
 
 
 # ─── Multimodal / IoT ─────────────────────────────────────────────────────────
@@ -397,3 +439,33 @@ class OAuthConnectRequest(BaseModel):
     refresh_token: str = ""
     expires_at: str = ""
     metadata: dict = {}
+
+
+# ─── Privacy / Consent / Data Lifecycle ─────────────────────────────────────
+
+class CreateConsentRequest(BaseModel):
+    consent_type: str
+    policy_version: str = "v1"
+    granted: bool = True
+
+
+class ConsentResponse(BaseModel):
+    id: str
+    consent_type: str
+    policy_version: str
+    granted: bool
+    granted_at: datetime
+    revoked_at: datetime | None = None
+
+
+class DataExportJobResponse(BaseModel):
+    id: str
+    status: str
+    created_at: datetime
+    expires_at: datetime | None = None
+
+
+class DeletionJobResponse(BaseModel):
+    id: str
+    status: str
+    created_at: datetime

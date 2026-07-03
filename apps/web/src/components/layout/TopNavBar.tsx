@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, toAbsoluteMediaUrl } from "@/lib/api-client";
+import { useLang } from "@/lib/lang-context";
 import AvatarUpload from "@/components/input/AvatarUpload";
 import {
   AUTH_CHANGED_EVENT,
@@ -23,6 +24,7 @@ export default function TopNavBar({
   showSearch = true,
   searchPlaceholder = "搜索...",
 }: TopNavBarProps) {
+  const { t } = useLang();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -157,7 +159,7 @@ export default function TopNavBar({
             </button>
 
             {isProfileOpen ? (
-              <div className="absolute right-0 top-11 w-72 rounded-2xl border border-outline-variant/15 bg-white p-4 shadow-[0_18px_50px_rgba(40,32,20,0.16)]">
+              <div className="absolute right-0 top-11 w-72 rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-4 shadow-lg">
                 {currentUser ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3">
@@ -171,43 +173,44 @@ export default function TopNavBar({
                       <div>
                         <p className="font-semibold text-on-surface">{currentUser.display_name}</p>
                         <p className="text-xs text-on-surface-variant">@{currentUser.username}</p>
-                        <p className="text-[11px] text-on-surface-variant mt-1">点击头像可上传</p>
+                        <p className="text-[11px] text-on-surface-variant mt-1">{t("点击头像可上传", "Click avatar to upload")}</p>
                       </div>
                     </div>
                     <div className="rounded-2xl bg-surface-container-low px-4 py-3 text-sm text-on-surface-variant">
-                      <p>用户名：{currentUser.username}</p>
-                      <p>注册时间：{new Date(currentUser.created_at).toLocaleDateString("zh-CN")}</p>
+                      <p>{t("用户名", "Username")}：{currentUser.username}</p>
+                      <p>{t("注册时间", "Registered")}：{new Date(currentUser.created_at).toLocaleDateString("zh-CN")}</p>
                     </div>
                     <button
                       type="button"
                       onClick={handleLogout}
                       className="w-full rounded-xl border border-outline-variant/15 px-4 py-2 text-sm font-medium text-on-surface transition hover:bg-surface-container-low"
                     >
-                      退出登录
+                      {t("退出登录", "Logout")}
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <p className="font-semibold text-on-surface">未登录</p>
+                      <p className="font-semibold text-on-surface">{t("未登录", "Not Logged In")}</p>
                       <p className="mt-1 text-sm leading-6 text-on-surface-variant">
-                        登录后可查看个人信息，并按账号隔离问诊、执行和健康档案数据。
+                        {t("登录后可查看个人信息，并按账号隔离问诊、执行和健康档案数据。",
+                           "Log in to view personal info and isolate consultation, execution, and health record data by account.")}
                       </p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <Link
                         href="/auth"
-                        className="rounded-xl bg-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:opacity-90"
+                        className="rounded-xl bg-primary px-4 py-2 text-center text-sm font-semibold text-on-primary transition hover:opacity-90"
                         onClick={() => setIsProfileOpen(false)}
                       >
-                        登录
+                        {t("登录", "Login")}
                       </Link>
                       <Link
                         href="/auth?mode=register"
                         className="rounded-xl border border-outline-variant/15 px-4 py-2 text-center text-sm font-semibold text-on-surface transition hover:bg-surface-container-low"
                         onClick={() => setIsProfileOpen(false)}
                       >
-                        注册
+                        {t("注册", "Register")}
                       </Link>
                     </div>
                   </div>

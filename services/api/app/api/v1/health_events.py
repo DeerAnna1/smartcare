@@ -2,10 +2,12 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from app.api.deps.auth import get_current_user_required
 from app.core.database import get_db
-from app.models.models import HealthEvent, HealthRecord, User
+from app.models.models import (
+    HealthEvent, HealthRecord, RegistrationOrder, ReminderTask, User,
+)
 from app.schemas.schemas import (
     EventCardResponse, ConfirmEventCardRequest,
     RecommendationsResponse, TaskRecommendation,
@@ -58,6 +60,13 @@ async def get_event(
     if not event:
         raise HTTPException(status_code=404, detail="事件卡不存在")
 
+    archived_result = await db.execute(
+        select(HealthRecord.id).where(
+            HealthRecord.event_id == event.id,
+            HealthRecord.user_id == user.id,
+        ).limit(1)
+    )
+
     return {
         "event_id": event.id,
         "status": event.status,
@@ -79,6 +88,7 @@ async def get_event(
         "insurance_material_suggestion": json.loads(event.insurance_material_suggestion),
         "source_session_id": event.source_session_id,
         "created_at": event.created_at.isoformat(),
+        "archived": archived_result.scalar_one_or_none() is not None,
     }
 
 
@@ -141,6 +151,7 @@ async def execute_event(
         record = HealthRecord(
             user_id=event.user_id,
             event_id=event.id,
+            created_at=event.created_at,
             title=event.chief_complaint or "健康问诊归档",
             department=event.recommended_department or "全科",
             tags=json.dumps(["会话归档", "待同步EHR"], ensure_ascii=False),
@@ -193,6 +204,7 @@ async def archive_event(
         record = HealthRecord(
             user_id=event.user_id,
             event_id=event.id,
+            created_at=event.created_at,
             title=event.chief_complaint or "健康问诊归档",
             department=event.recommended_department or "全科",
             tags=json.dumps(["会话归档", "待同步EHR"], ensure_ascii=False),
@@ -219,6 +231,81 @@ async def archive_event(
         "event_id": event.id,
         "record_id": record.id,
         "message": "事件已归档到健康档案",
+    }
+
+
+@router.delete("/{event_id}/archive")
+async def unarchive_event(
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_required),
+):
+    """取消归档，并移除该事件已同步到 EHR 的关联健康档案。"""
+    result = await db.execute(
+        select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)
+    )
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="事件卡不存在")
+
+    records = await db.execute(
+        select(HealthRecord).where(
+            HealthRecord.event_id == event.id,
+            HealthRecord.user_id == user.id,
+        )
+    )
+    linked_records = records.scalars().all()
+    synced_deleted = sum(record.sync_status == "synced" for record in linked_records)
+    for record in linked_records:
+        await db.delete(record)
+    await db.flush()
+    return {
+        "success": True,
+        "event_id": event.id,
+        "deleted_record_count": len(linked_records),
+        "deleted_ehr_count": synced_deleted,
+        "archived": False,
+    }
+
+
+@router.delete("/{event_id}")
+async def delete_event(
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_required),
+):
+    """删除通用执行及其提醒、健康档案和 EHR 同步数据。"""
+    result = await db.execute(
+        select(HealthEvent).where(HealthEvent.id == event_id, HealthEvent.user_id == user.id)
+    )
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="事件卡不存在")
+
+    records = await db.execute(
+        select(HealthRecord).where(
+            HealthRecord.event_id == event.id,
+            HealthRecord.user_id == user.id,
+        )
+    )
+    linked_records = records.scalars().all()
+    synced_deleted = sum(record.sync_status == "synced" for record in linked_records)
+
+    # Keep real appointment orders, but detach them from the deleted execution.
+    await db.execute(
+        update(RegistrationOrder)
+        .where(RegistrationOrder.health_event_id == event.id)
+        .values(health_event_id=None)
+    )
+    await db.execute(delete(ReminderTask).where(ReminderTask.event_id == event.id))
+    await db.execute(delete(HealthRecord).where(HealthRecord.event_id == event.id))
+    await db.delete(event)
+    await db.flush()
+    return {
+        "success": True,
+        "event_id": event_id,
+        "deleted_record_count": len(linked_records),
+        "deleted_ehr_count": synced_deleted,
     }
 
 

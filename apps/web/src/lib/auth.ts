@@ -57,6 +57,7 @@ export function clearStoredAuth() {
   }
 
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  window.localStorage.removeItem("llm_config_done");
   document.cookie = `${AUTH_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
   window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }

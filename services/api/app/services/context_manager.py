@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
@@ -20,7 +21,13 @@ def estimate_tokens(text: str) -> int:
     中文约 1.5 字/token，英文约 4 字符/token。
     用混合公式: len(text) / 2 作为保守估计。
     """
-    return max(1, len(text) // 2)
+    if not text:
+        return 0
+    # Conservative mixed-language estimate. Chinese characters commonly occupy
+    # one or more tokens; treating each as one prevents systematic undercounts.
+    chinese = len(re.findall(r"[\u3400-\u9fff]", text))
+    other = len(text) - chinese
+    return max(1, chinese + (other + 3) // 4)
 
 
 def count_message_tokens(messages: list[BaseMessage]) -> int:
@@ -76,10 +83,18 @@ def trim_messages_to_budget(
                 break
 
     # 如果仍然超出 token budget，从最旧端裁剪
-    while count_message_tokens(kept) > token_budget and len(kept) > 2:
+    while count_message_tokens(kept) > token_budget and len(kept) > 1:
         # 不要裁掉最后一条消息
         kept.pop(0)
 
+    # A single user message can itself exceed the model window. Fail closed by
+    # clipping text while retaining the most recent part, where the question
+    # and corrections are most likely to be located.
+    if kept and count_message_tokens(kept) > token_budget:
+        latest = kept[-1]
+        if isinstance(latest.content, str):
+            max_chars = max(200, token_budget * 2)
+            latest.content = "[较长输入已按 token 预算截断]\n" + latest.content[-max_chars:]
     return kept
 
 

@@ -1,6 +1,9 @@
 .venv
+models
+data/chroma_db
+uploads
+tmp
 __pycache__
 *.pyc
 *.pyo
 .env
-alembic/versions

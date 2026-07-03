@@ -44,10 +44,13 @@ function ExecutionContent() {
   const [filter, setFilter] = useState<"all" | "pending" | "done">("all");
   const [page, setPage] = useState(1);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!eventId) {
       let cancelled = false;
+      // Reset list state when switching from detail mode.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(true);
       setTasks([]);
       api.listEvents().then((data) => {
@@ -116,7 +119,7 @@ function ExecutionContent() {
         );
         setExecutingTaskId(null);
       }, 600);
-    } catch (error) {
+    } catch {
       // 恢复状态
       setTasks((prev) =>
         prev.map((t) =>
@@ -136,10 +139,41 @@ function ExecutionContent() {
     try {
       await api.archiveEvent(eid);
       setEvents((prev) => prev.map((e) => e.event_id === eid ? { ...e, archived: true } : e));
+      setCurrentEvent((prev) => prev?.event_id === eid ? { ...prev, archived: true } : prev);
     } catch {
       alert(t("归档失败，请重试", "Archive failed, please retry"));
     } finally {
       setArchivingId(null);
+    }
+  };
+
+  const handleUnarchive = async (eid: string) => {
+    if (archivingId) return;
+    if (!confirm(t("取消归档将同时删除关联健康档案及已同步的 EHR 数据，确定继续？", "Unarchiving also removes the linked health record and synced EHR data. Continue?"))) return;
+    setArchivingId(eid);
+    try {
+      await api.unarchiveEvent(eid);
+      setEvents((prev) => prev.map((e) => e.event_id === eid ? { ...e, archived: false } : e));
+      setCurrentEvent((prev) => prev?.event_id === eid ? { ...prev, archived: false } : prev);
+    } catch {
+      alert(t("取消归档失败，请重试", "Failed to unarchive, please retry"));
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
+  const handleDelete = async (eid: string) => {
+    if (deletingId) return;
+    if (!confirm(t("确定删除该通用执行？关联的健康档案、EHR 同步数据和提醒也会删除，此操作不可撤销。", "Delete this execution? Linked health records, EHR sync data, and reminders will also be deleted. This cannot be undone."))) return;
+    setDeletingId(eid);
+    try {
+      await api.deleteEvent(eid);
+      setEvents((prev) => prev.filter((e) => e.event_id !== eid));
+      if (eventId === eid) router.push("/execution");
+    } catch {
+      alert(t("删除失败，请重试", "Delete failed, please retry"));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -175,7 +209,7 @@ function ExecutionContent() {
       setCompletionRate(100);
       setExecuted(refreshedTasks.length > 0 && refreshedTasks.every((t: Task) => t.status === "completed"));
       setExecuting(false);
-    } catch (error) {
+    } catch {
       setExecuting(false);
       alert(t("执行失败，请重试", "Execution failed, please retry"));
     }
@@ -203,19 +237,32 @@ function ExecutionContent() {
     const pagedEvents = filteredEvents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
     return (
-      <div className="p-8 space-y-6">
-        <div className="bg-primary-fixed/30 border-l-4 border-primary rounded-r-xl px-6 py-3 flex items-center justify-between">
-          <div>
-            <h1 className="font-headline font-bold text-xl text-on-surface">{t("通用执行", "Execution")}</h1>
-            <p className="text-on-surface-variant text-sm">{t("点击任意事件查看执行详情与任务清单", "Click any event to view execution details and task list")}</p>
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        <section className="sr-only">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-container text-primary">
+                <span className="material-symbols-outlined text-[21px]" style={{ fontVariationSettings: "'FILL' 1" }}>conversion_path</span>
+              </div>
+              <div><h1 className="font-headline text-xl font-bold text-on-surface sm:text-2xl">{t("通用执行", "Execution Workspace")}</h1>
+              <p className="mt-1 text-sm text-on-surface-variant">{t("将问诊结论转化为可追踪、可归档的健康行动", "Turn consultation outcomes into trackable health actions")}</p></div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                [events.length, t("全部", "All"), "assignment"],
+                [events.filter((event) => event.status !== "EXECUTED").length, t("未完成", "Pending"), "pending_actions"],
+                [events.filter((event) => event.status === "EXECUTED").length, t("已完成", "Done"), "task_alt"],
+              ].map(([value, label, icon]) => (
+                <div key={String(label)} className="min-w-[76px] rounded-xl bg-surface-container px-3 py-2">
+                  <div className="flex items-center justify-between gap-2"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">{icon}</span><span className="font-headline text-lg font-bold text-on-surface">{value}</span></div>
+                  <p className="text-[10px] font-semibold text-on-surface-variant">{label}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="flex h-2 w-2 rounded-full bg-secondary"></span>
-            <span className="text-xs font-semibold text-secondary">{t("系统运行中", "System Running")}</span>
-          </div>
-        </div>
+        </section>
 
-        <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
+        <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-4 shadow-sm sm:p-6">
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {(["all", "pending", "done"] as const).map((val) => {
@@ -259,18 +306,18 @@ function ExecutionContent() {
                   const createdAt = new Date(event.created_at).toLocaleString("zh-CN", { hour12: false });
                   const isArchiving = archivingId === event.event_id;
                   return (
-                    <div key={event.event_id} className="flex items-center gap-3 p-4 rounded-xl bg-surface-container border border-transparent hover:border-outline-variant/20 transition-all">
+                    <div key={event.event_id} className="flex flex-col gap-3 rounded-2xl border border-outline-variant/10 bg-surface-container-low p-4 transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:bg-surface-container-lowest hover:shadow-md sm:flex-row sm:items-center">
                       <button
                         onClick={() => router.push(`/execution?eventId=${event.event_id}`)}
-                        className="flex items-start gap-4 flex-1 text-left min-w-0"
+                        className="flex items-start gap-3 sm:gap-4 flex-1 text-left min-w-0"
                       >
-                        <div className="w-11 h-11 rounded-2xl bg-primary-fixed/40 flex items-center justify-center shrink-0">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary-container">
                           <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>assignment</span>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-on-surface truncate">{event.chief_complaint || t("健康事件", "Health Event")}</p>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            <p className="font-semibold text-on-surface min-w-0 truncate">{event.chief_complaint || t("健康事件", "Health Event")}</p>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 ${
                               event.status === "EXECUTED"
                                 ? "bg-secondary-container/40 text-secondary"
                                 : event.status === "CONFIRMED"
@@ -280,25 +327,32 @@ function ExecutionContent() {
                               {statusLabelMap[event.status] ?? event.status}
                             </span>
                             {event.archived && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-tertiary-container/40 text-tertiary">{t("已归档", "Archived")}</span>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-tertiary-container/40 text-tertiary shrink-0">{t("已归档", "Archived")}</span>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-on-surface-variant flex-wrap">
+                          <div className="flex items-center gap-x-3 gap-y-1 mt-1 text-xs text-on-surface-variant flex-wrap">
                             <span>{createdAt}</span>
                             {event.recommended_department && <span>{event.recommended_department}</span>}
                             {event.triage_level && <span>{triageLabelMap[event.triage_level] ?? event.triage_level}</span>}
                           </div>
                         </div>
                       </button>
-                      <div className="shrink-0 flex items-center gap-2">
+                      <div className="flex items-center gap-2 sm:shrink-0 self-end sm:self-center">
                         <button
-                          onClick={() => handleArchive(event.event_id)}
-                          disabled={Boolean(event.archived) || isArchiving}
+                          onClick={() => event.archived ? handleUnarchive(event.event_id) : handleArchive(event.event_id)}
+                          disabled={isArchiving}
                           className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 bg-primary text-on-primary hover:opacity-80"
                         >
-                          {event.archived ? t("已归档", "Archived") : isArchiving ? t("归档中...", "Archiving...") : t("归档到档案", "Archive")}
+                          {isArchiving ? t("处理中...", "Processing...") : event.archived ? t("取消归档", "Unarchive") : t("归档", "Archive")}
                         </button>
-                        <span className="material-symbols-outlined text-on-surface-variant text-[18px]">chevron_right</span>
+                        <button
+                          onClick={() => handleDelete(event.event_id)}
+                          disabled={deletingId === event.event_id}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 bg-error-container text-error hover:opacity-80"
+                        >
+                          {deletingId === event.event_id ? t("删除中...", "Deleting...") : t("删除", "Delete")}
+                        </button>
+                        <span className="material-symbols-outlined text-on-surface-variant text-[18px] hidden sm:block">chevron_right</span>
                       </div>
                     </div>
                   );
@@ -341,7 +395,7 @@ function ExecutionContent() {
   }
 
   return (
-    <div className="p-8">
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
       {/* 返回按钮 */}
       <button
         onClick={() => router.push("/execution")}
@@ -352,7 +406,7 @@ function ExecutionContent() {
       </button>
 
       {/* 执行区域指示条 */}
-      <div className="bg-primary-fixed/30 border-l-4 border-primary rounded-r-xl px-6 py-3 mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between rounded-3xl bg-gradient-to-r from-primary-container/70 to-secondary-container/35 px-5 py-5 shadow-sm ring-1 ring-outline-variant/10 sm:px-7">
         <div>
           <p className="text-xs font-bold text-primary uppercase tracking-widest">{t("执行区域", "EXECUTION")}</p>
           <h1 className="font-headline font-bold text-xl text-on-surface mt-0.5">{t("执行控制台", "Execution Console")}</h1>
@@ -364,10 +418,10 @@ function ExecutionContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* 左侧：任务列表 */}
-        <div className="col-span-8 space-y-6">
-          <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
+        <div className="space-y-6 lg:col-span-8">
+          <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-headline font-bold text-on-surface">{t("任务清单", "Task List")}</h2>
               <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -464,7 +518,7 @@ function ExecutionContent() {
           </div>
 
           {/* 执行进度 */}
-          <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
+          <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm sm:p-6">
             <h2 className="font-headline font-bold text-on-surface mb-4">{t("执行进度", "Execution Progress")}</h2>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-on-surface-variant">{t("完成度", "Progress")}</span>
@@ -485,8 +539,8 @@ function ExecutionContent() {
         </div>
 
         {/* 右侧：操作区 */}
-        <div className="col-span-4 space-y-4">
-          <div className="bg-surface-container-lowest rounded-2xl p-6 border border-outline-variant/10 shadow-sm">
+        <div className="space-y-4 lg:col-span-4">
+          <div className="rounded-3xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-sm sm:p-6">
             <h2 className="font-headline font-bold text-on-surface mb-4">{t("快速操作", "Quick Actions")}</h2>
             <div className="space-y-3">
               <button
@@ -505,6 +559,20 @@ function ExecutionContent() {
                 }`}
               >
                 {executing ? t("执行中...", "Executing...") : executed ? t("已执行完成", "Completed") : t("执行所有任务", "Execute All Tasks")}
+              </button>
+              <button
+                onClick={() => currentEvent?.archived ? handleUnarchive(eventId) : handleArchive(eventId)}
+                disabled={archivingId === eventId}
+                className="w-full py-3 px-4 rounded-xl bg-tertiary-container text-tertiary font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+              >
+                {archivingId === eventId ? t("处理中...", "Processing...") : currentEvent?.archived ? t("取消归档", "Unarchive") : t("归档到健康档案", "Archive to Health Records")}
+              </button>
+              <button
+                onClick={() => handleDelete(eventId)}
+                disabled={deletingId === eventId}
+                className="w-full py-3 px-4 rounded-xl bg-error-container text-error font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+              >
+                {deletingId === eventId ? t("删除中...", "Deleting...") : t("删除通用执行", "Delete Execution")}
               </button>
             </div>
           </div>

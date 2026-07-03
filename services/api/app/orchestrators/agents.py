@@ -212,7 +212,7 @@ AGENTS = {
         "description": "Collect symptom details through targeted follow-up questions",
         "prompt_zh": COLLECTOR_PROMPT_ZH,
         "prompt_en": COLLECTOR_PROMPT_EN,
-        "max_tokens": 400,
+        "max_tokens": 800,
         "temperature": 0.2,
     },
     "risk": {
@@ -220,7 +220,7 @@ AGENTS = {
         "description": "Evaluate risk level based on collected symptoms",
         "prompt_zh": RISK_PROMPT_ZH,
         "prompt_en": RISK_PROMPT_EN,
-        "max_tokens": 300,
+        "max_tokens": 600,
         "temperature": 0.1,
     },
     "summary": {
@@ -228,7 +228,7 @@ AGENTS = {
         "description": "Generate structured health event card from complete conversation",
         "prompt_zh": SUMMARY_PROMPT_ZH,
         "prompt_en": SUMMARY_PROMPT_EN,
-        "max_tokens": 1200,
+        "max_tokens": 1800,
         "temperature": 0.1,
     },
 }

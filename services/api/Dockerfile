@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install \
     -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --trusted-host pypi.tuna.tsinghua.edu.cn \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
     --timeout 300 --retries 5 \
     -r requirements.txt
 
@@ -48,4 +49,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
 # 生产用 gunicorn + uvicorn worker；开发用 docker-compose 覆盖 command 启 --reload
-CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w ${WORKERS} -b 0.0.0.0:8000 --timeout 90 --graceful-timeout 30 --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "alembic upgrade head && gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w ${WORKERS} -b 0.0.0.0:8000 --timeout 90 --graceful-timeout 30 --access-logfile - --error-logfile -"]

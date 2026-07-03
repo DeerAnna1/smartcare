@@ -5,12 +5,10 @@ import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import { ThemeProvider } from "@/lib/theme-context";
 import { LangProvider } from "@/lib/lang-context";
+import { MobileSidebarProvider, useMobileSidebar } from "@/lib/mobile-sidebar-context";
 
-export default function ExecutionLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function ExecutionLayoutInner({ children }: { children: React.ReactNode }) {
+  const { mobileOpen, openMobile, closeMobile } = useMobileSidebar();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -27,17 +25,32 @@ export default function ExecutionLayout({
   };
 
   return (
+    <div className="flex h-screen h-dvh overflow-hidden bg-surface">
+      <Sidebar collapsed={collapsed} onToggleCollapse={toggleCollapse} mobileOpen={mobileOpen} onMobileClose={closeMobile} />
+      <main className="no-scrollbar h-full min-w-0 flex-1 overflow-y-auto">
+        <div className="flex items-center px-4 md:px-6 py-3">
+          <button onClick={openMobile} className="p-1.5 rounded-md text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-container transition-colors md:hidden mr-auto" title="菜单">
+            <span className="material-symbols-outlined text-[20px] leading-none">menu</span>
+          </button>
+          <div className="ml-auto"><TopBar /></div>
+        </div>
+        {children}
+      </main>
+    </div>
+  );
+}
+
+export default function ExecutionLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
     <ThemeProvider>
       <LangProvider>
-        <div className="flex min-h-screen bg-surface">
-          <Sidebar collapsed={collapsed} onToggleCollapse={toggleCollapse} />
-          <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
-            <div className="flex justify-end px-6 py-3">
-              <TopBar />
-            </div>
-            {children}
-          </main>
-        </div>
+        <MobileSidebarProvider>
+          <ExecutionLayoutInner>{children}</ExecutionLayoutInner>
+        </MobileSidebarProvider>
       </LangProvider>
     </ThemeProvider>
   );

@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
-from app.api.deps.auth import get_current_user
+from app.api.deps.auth import get_current_user, get_current_user_required
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -99,7 +99,7 @@ def _extract_text_from_document(content: bytes, ext: str) -> tuple[str, str]:
       - extraction status: success / unsupported / failed / empty
     """
     try:
-        if ext == ".txt":
+        if ext in (".txt", ".md"):
             text = content.decode("utf-8", errors="ignore").strip()
             if not text:
                 return "", "empty"
@@ -194,13 +194,47 @@ async def _extract_text_via_ocr_space(content: bytes, filename: str) -> tuple[st
         return "", "failed"
 
 
+async def _extract_text_via_llm_vision(content: bytes, ext: str) -> tuple[str, str]:
+    """Use LLM vision model (mimo-v2-omni) to extract text from images."""
+    try:
+        import base64 as _b64
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
+        )
+        mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+        mime = mime_map.get(ext, "image/png")
+        img_url = f"data:{mime};base64,{_b64.b64encode(content).decode()}"
+
+        # 使用多模态模型 mimo-v2-omni 进行图片分析
+        response = await client.chat.completions.create(
+            model=settings.MIMO_OMNI_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请识别这张图片中的所有文字内容，包括表格、数字、标题等，原样输出。如果是医学检验报告，请保留所有数值和单位。只输出识别到的文字，不要添加任何解释。"},
+                    {"type": "image_url", "image_url": {"url": img_url}}
+                ]
+            }],
+            max_tokens=2000,
+        )
+        text = (response.choices[0].message.content or "").strip()
+        if not text:
+            return "", "empty"
+        return text[:MAX_EXTRACT_CHARS], "success"
+    except Exception:
+        return "", "failed"
+
+
 @router.post("/document")
 @limiter.limit("10/minute")
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     """Upload a document (PDF, Word, TXT)."""
     original_name = _safe_name(file.filename or "document")
@@ -235,11 +269,19 @@ async def upload_document(
         with open(filepath, "wb") as f:
             f.write(content)
 
-        # 优先真实 OCR（OCR.space），失败时自动降级到本地解析
+        # OCR 优先级：OCR.space → LLM 视觉模型 → 本地解析
         extracted_text = ""
         extraction_status = "failed"
-        if settings.OCR_PROVIDER.lower() == "ocr_space" and ext in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+        IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+
+        if settings.OCR_PROVIDER.lower() == "ocr_space" and ext in (IMAGE_EXTS | {".pdf"}):
             extracted_text, extraction_status = await _extract_text_via_ocr_space(content, original_name)
+
+        # 图片文件：OCR.space 失败时用 LLM 视觉模型识别
+        if extraction_status != "success" and ext in IMAGE_EXTS:
+            extracted_text, extraction_status = await _extract_text_via_llm_vision(content, ext)
+
+        # 非图片或以上都失败时，用本地解析
         if extraction_status != "success":
             extracted_text, extraction_status = _extract_text_from_document(content, ext)
         structured_items = parse_lab_text(extracted_text) if extracted_text else []
@@ -278,7 +320,7 @@ async def upload_document(
 @router.get("/document/{filename}")
 async def get_document(
     filename: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     user_dir = UPLOAD_DIR / str(current_user.id) / "documents"
     safe_filename = _safe_name(filename)
@@ -294,7 +336,7 @@ async def upload_avatar(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     """Upload user avatar image."""
     original_name = _safe_name(file.filename or "avatar.jpg")
@@ -359,7 +401,11 @@ async def get_avatar(
     user_id: str,
     filename: str,
 ):
-    """Serve avatar image. Public endpoint — URL acts as capability token via user_id path."""
+    """Serve avatar image. Public endpoint — URL acts as capability token via user_id path.
+
+    Note: This is intentionally public. The user_id in the path acts as a capability token.
+    Do not add authentication to this endpoint.
+    """
     # Prevent path traversal: only allow simple alphanumeric / UUID values
     safe_user_id = Path(user_id).name
     if not safe_user_id or safe_user_id in (".", ".."):
@@ -385,7 +431,7 @@ MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB
 async def upload_audio(
     request: Request,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     """Upload audio for Whisper transcription."""
     original_name = _safe_name(file.filename or "audio.webm")
@@ -404,27 +450,38 @@ async def upload_audio(
         )
 
     try:
+        import base64 as _b64
         from openai import AsyncOpenAI
 
-        whisper_base_url = settings.WHISPER_BASE_URL or settings.OPENAI_BASE_URL
+        asr_base_url = settings.WHISPER_BASE_URL or settings.OPENAI_BASE_URL
         client = AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY,
-            base_url=whisper_base_url,
+            base_url=asr_base_url,
         )
 
-        audio_file = BytesIO(content)
-        audio_file.name = original_name
+        # MiMo ASR uses chat completions with input_audio, not audio.transcriptions
+        mime_map = {
+            ".webm": "audio/webm", ".ogg": "audio/ogg", ".wav": "audio/wav",
+            ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".mp4": "audio/mp4",
+        }
+        mime = mime_map.get(ext, "audio/webm")
+        audio_data_url = f"data:{mime};base64,{_b64.b64encode(content).decode()}"
 
-        # Use MiMo ASR model for speech-to-text
-        transcript = await client.audio.transcriptions.create(
+        response = await client.chat.completions.create(
             model=settings.MIMO_ASR_MODEL,
-            file=audio_file,
-            language="zh",
+            messages=[{
+                "role": "user",
+                "content": [{
+                    "type": "input_audio",
+                    "input_audio": {"data": audio_data_url, "format": ext.lstrip(".")}
+                }]
+            }],
         )
 
+        text = response.choices[0].message.content or ""
         return {
             "status": "success",
-            "text": transcript.text,
+            "text": text,
             "filename": original_name,
         }
 
@@ -440,7 +497,7 @@ async def upload_audio(
 async def upload_video(
     request: Request,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     """Upload video for multimodal consultation (MiMo Omni)."""
     original_name = _safe_name(file.filename or "video.mp4")
@@ -487,7 +544,7 @@ async def upload_video(
 @router.get("/video/{filename}")
 async def get_video(
     filename: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_required),
 ):
     """Serve uploaded video file."""
     user_dir = UPLOAD_DIR / str(current_user.id) / "videos"
