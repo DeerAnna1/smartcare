@@ -1,7 +1,7 @@
 ## **SmartCare / 智愈** 
 
 面向家庭健康场景的中文全栈健康助手：以「问诊工作区」完成多轮症状采集、风险分诊和健康事件生成；「执行工作区」承接用药提醒、健康档案（EHR）、挂号预约、IoT 生命体征监测等后续任务。
-
+<img width="2319" height="2302" alt="介绍" src="https://github.com/user-attachments/assets/4b02d8aa-66e0-45b6-8a58-9e5e7a5fd2f6" />
 ```bash
 docker compose -f infra/docker/docker-compose.yml up -d --build
 ```
