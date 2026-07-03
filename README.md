@@ -161,36 +161,77 @@ docker compose -f infra/docker/docker-compose.yml up -d --build
 - **流程**：多轮问诊 → 阶段性结论 → 生成并确认健康事件 → 执行推荐任务 → 归档至健康档案
 - **功能**：支持历史会话、风险提示、任务执行、事件归档、EHR 摘要生成与 PDF 导出
 
+https://github.com/user-attachments/assets/cc0c4b9e-19bf-4e68-b56b-6f4492b71155
+
+
+
 ### 4.2 心率模拟
 
 - **功能**：调整心率、单次或连续推送、查看请求日志、最近体征和风险等级
 - **风险联动**：异常体征可触发风险事件、真人接管工单和已配置的飞书告警
+
+
+
+
+https://github.com/user-attachments/assets/0da0d895-7d1e-44f0-9a4c-d5bbc9ec3962
+
+
+
 
 ### 4.3 知识图谱
 
 - **功能**：搜索疾病、症状、药物等医学实体，查看节点关系和关联子图
 - **问诊联动**：识别对话中的医学实体，为问诊补充结构化知识上下文
 
+
+https://github.com/user-attachments/assets/f7459b96-5fd1-4242-a216-dc55b51fffb0
+
+
+
+https://github.com/user-attachments/assets/9c20e942-282f-4786-b255-13b365066200
+
+
 ### 4.4 知识库管理
 
 - **功能**：上传、检索、预览和删除医学知识文档，查看向量库统计信息
 - **支持格式**：PDF、Word、Excel、文本和图片等，内容经过切分与向量化后用于 RAG 检索
+
+
+https://github.com/user-attachments/assets/c136eb9a-6fc8-4b25-b123-f620e008b68e
+
 
 ### 4.5 长期记忆
 
 - **功能**：保存用户明确表达的病史、过敏史、用药情况和个人偏好，并支持确认、拒绝和删除
 - **问诊联动**：已确认记忆会自动加入后续问诊上下文，减少重复询问
 
+
+https://github.com/user-attachments/assets/fe9ebc1a-a365-4d32-b742-ad8bf2200ea0
+
+
 ### 4.6 定时科普
 
 - **功能**：通过自然语言创建健康科普计划，支持查看、编辑、启停、立即执行和运行日志
 - **示例**：`每天晚上八点给我推送高血压饮食科普`
+
+
+https://github.com/user-attachments/assets/cb1a67d7-ca12-4062-9364-4366db2045d4
+
 
 ### 4.7 工具管理
 
 - **Skill**：支持技能创建、启停、工具绑定、测试调用和日志查看
 - **内置工具**：药物相互作用、挂号预约、检验指标解释、天气和 PubMed 查询等
 - **MCP**：支持 Server 注册、工具发现、健康检查、调用与删除；高风险工具可启用调用前确认
+
+
+https://github.com/user-attachments/assets/31421ec3-7b8c-46d2-a8e3-e32a2e79c147
+
+
+
+https://github.com/user-attachments/assets/467cceea-8724-409f-a41c-383fbbe1a517
+
+
 
 挂号功能如需本地演示排班数据，可执行：
 
