@@ -7,6 +7,7 @@
 - test_user / test_user_b: 测试用户和 token
 """
 
+import os
 import uuid
 from typing import AsyncGenerator
 
@@ -22,8 +23,11 @@ import app.models.models  # noqa: F401
 # 导入 FastAPI app（放在最后避免循环导入）
 from app.main import app as fastapi_app
 
-# 使用测试数据库配置（Docker 映射端口 5433）
-TEST_DATABASE_URL = "postgresql+asyncpg://medhelp:medhelp_secret@localhost:5433/medhelpagent_test"
+# CI 通过 DATABASE_URL 注入 5432；本地 Docker 默认映射到 5433。
+TEST_DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://medhelp:medhelp_secret@localhost:5433/medhelpagent_test",
+)
 
 
 @pytest_asyncio.fixture

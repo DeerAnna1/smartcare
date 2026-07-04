@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { getStoredAuth } from "@/lib/auth";
 import { useLang } from "@/lib/lang-context";
@@ -9,42 +9,75 @@ import { useLang } from "@/lib/lang-context";
 export default function LandingPage() {
   const router = useRouter();
   const { t } = useLang();
-  const [authed, setAuthed] = useState(false);
-
   const features = useMemo(
     () => [
       {
-        icon: "stethoscope",
-        title: t("智能分诊问诊", "Smart Triage Consultation"),
+        icon: "clinical_notes",
+        title: t("问诊归档全流程", "Consultation to Archive"),
         desc: t(
-          "多轮对话采集症状，AI 自动分诊、识别风险信号，生成结构化健康事件卡片。",
-          "Multi-turn dialogue to collect symptoms, AI auto-triage, risk signal detection, and structured health event cards."
-        ),
-      },
-      {
-        icon: "event_available",
-        title: t("一站式执行", "One-Stop Execution"),
-        desc: t(
-          "从问诊结论自动派发用药提醒、挂号预约、档案更新等任务。",
-          "Auto-dispatch medication reminders, appointment bookings, record updates and more from consultation conclusions."
+          "从多轮问诊、风险分诊到事件执行与健康档案归档，形成完整闭环。",
+          "A complete loop from consultation and triage to event execution and health record archiving."
         ),
       },
       {
         icon: "monitor_heart",
-        title: t("IoT 体征监测", "IoT Vital Monitoring"),
+        title: t("心率模拟", "Heart Rate Simulation"),
         desc: t(
-          "接入穿戴设备实时监测心率等指标，异常数据自动触发风险评估。",
-          "Connect wearable devices for real-time heart rate monitoring; abnormal data auto-triggers risk assessment."
+          "模拟生命体征推送，联调风险识别、真人接管与告警链路。",
+          "Simulate vital data to validate risk detection, human handoff, and alerts."
         ),
       },
       {
-        icon: "local_pharmacy",
-        title: t("药物安全查询", "Drug Safety Lookup"),
+        icon: "account_tree",
+        title: t("知识图谱", "Knowledge Graph"),
         desc: t(
-          "一键查询药物相互作用，避免联合用药风险，获取专业建议。",
-          "One-click drug interaction lookup, avoid combination risks, get professional advice."
+          "探索疾病、症状与药物关系，为问诊补充结构化医学知识。",
+          "Explore medical relationships and enrich consultations with structured knowledge."
         ),
       },
+      {
+        icon: "library_books",
+        title: t("知识库管理", "Knowledge Base"),
+        desc: t(
+          "导入并检索医学资料，通过 RAG 为回答提供相关知识依据。",
+          "Import and retrieve medical documents to ground answers with RAG."
+        ),
+      },
+      {
+        icon: "psychology",
+        title: t("长期记忆", "Long-term Memory"),
+        desc: t(
+          "保存经确认的病史、过敏史与偏好，让后续问诊更连贯。",
+          "Retain confirmed history, allergies, and preferences for continuous care."
+        ),
+      },
+      {
+        icon: "schedule",
+        title: t("定时科普", "Scheduled Education"),
+        desc: t(
+          "用自然语言创建健康科普计划，支持启停、测试与日志查看。",
+          "Create health education schedules in natural language and track each run."
+        ),
+      },
+      {
+        icon: "handyman",
+        title: t("工具管理", "Tool Management"),
+        desc: t(
+          "统一管理内置工具、Skill 与 MCP 服务，按需绑定和调用。",
+          "Manage built-in tools, Skills, and MCP services in one place."
+        ),
+      },
+    ],
+    [t]
+  );
+
+  const flow = useMemo(
+    () => [
+      { icon: "forum", label: t("多轮问诊", "Consult") },
+      { icon: "summarize", label: t("阶段结论", "Summarize") },
+      { icon: "fact_check", label: t("确认事件", "Confirm") },
+      { icon: "task_alt", label: t("执行任务", "Execute") },
+      { icon: "folder_managed", label: t("归档记录", "Archive") },
     ],
     [t]
   );
@@ -52,157 +85,176 @@ export default function LandingPage() {
   useEffect(() => {
     const auth = getStoredAuth();
     if (auth?.token) {
-      setAuthed(true);
       router.replace("/chat/new");
     }
   }, [router]);
 
-  if (authed) return null;
-
   return (
     <div className="min-h-screen bg-surface text-on-surface">
-      {/* Header */}
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 md:px-8">
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[22px] text-primary">
-            local_hospital
-          </span>
-          <span className="font-semibold text-base text-on-surface tracking-tight">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3 md:px-8">
+        <div className="flex items-center gap-2.5">
+          <span className="material-symbols-outlined text-[22px] text-primary">local_hospital</span>
+          <span className="text-base font-semibold tracking-tight text-on-surface">
             {t("智愈", "SmartCare")}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <Link
             href="/auth"
-            className="text-sm text-on-surface-variant hover:text-on-surface transition-colors"
+            className="text-sm text-on-surface-variant transition-colors hover:text-on-surface"
           >
             {t("登录", "Sign In")}
           </Link>
           <Link
             href="/auth?mode=register"
-            className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary transition hover:opacity-90"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary transition hover:opacity-90"
           >
-            {t("注册", "Sign Up")}
+            {t("免费注册", "Sign Up")}
           </Link>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto max-w-5xl px-6 pt-20 pb-16 md:px-8 md:pt-32 md:pb-24">
-        <div className="max-w-2xl">
-          <h1 className="text-4xl font-bold leading-tight tracking-tight text-on-surface md:text-5xl">
-            {t("AI 驱动的", "AI-Powered")}
-            <br />
-            <span className="text-primary">
-              {t("家庭健康管理平台", "Family Health Management Platform")}
-            </span>
-          </h1>
-          <p className="mt-5 text-base leading-7 text-on-surface-variant md:text-lg">
-            {t(
-              "通过智能问诊采集症状、自动分诊评估风险，将问诊结论转化为可执行的健康任务——用药提醒、挂号预约、档案更新，一站完成。",
-              "Collect symptoms through smart consultations, auto-triage and assess risks, convert consultation results into actionable health tasks — medication reminders, appointment bookings, record updates — all in one place."
-            )}
-          </p>
-          <div className="mt-8 flex items-center gap-4">
-            <Link
-              href="/auth?mode=register"
-              className="rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-on-primary transition hover:opacity-90"
-            >
-              {t("开始使用", "Get Started")}
-            </Link>
-            <Link
-              href="/auth"
-              className="rounded-lg border border-outline-variant/30 px-6 py-2.5 text-sm font-medium text-on-surface transition hover:bg-surface-container-low"
-            >
-              {t("登录", "Sign In")}
-            </Link>
+      <main>
+        <section className="relative mx-auto grid max-w-6xl gap-8 overflow-hidden px-6 py-8 md:grid-cols-[1.35fr_0.65fr] md:items-center md:px-8 md:py-10">
+          <div className="max-w-3xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-lowest px-3 py-1.5 text-xs font-medium text-on-surface-variant">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              {t("面向家庭场景的 AI 健康助手", "AI health assistant for families")}
+            </div>
+            <h1 className="text-4xl font-bold leading-[1.15] tracking-tight text-on-surface md:text-5xl">
+              {t("从一次问诊，到持续的", "From one consultation to")}
+              <br />
+              <span className="text-primary">{t("健康管理闭环", "continuous health management")}</span>
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-on-surface-variant">
+              {t(
+                "智愈连接智能问诊、任务执行、健康档案与医学知识，让健康信息不止停留在回答，而是转化为清晰、可追踪的下一步。",
+                "SmartCare connects consultation, task execution, health records, and medical knowledge—turning answers into clear, trackable next steps."
+              )}
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link
+                href="/auth?mode=register"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-medium text-on-primary transition hover:opacity-90"
+              >
+                {t("开始问诊", "Start Consultation")}
+                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+              </Link>
+              <Link
+                href="/auth"
+                className="rounded-lg border border-outline-variant/30 px-6 py-3 text-sm font-medium text-on-surface transition hover:bg-surface-container-low"
+              >
+                {t("已有账号，登录", "Sign in")}
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
+          <div className="hidden rounded-2xl border border-outline-variant/15 bg-surface-container-lowest p-4 shadow-[0_16px_45px_rgba(68,64,60,0.06)] md:block">
+            <div className="flex items-center justify-between border-b border-outline-variant/15 pb-4">
+              <div>
+                <p className="text-xs text-on-surface-variant">{t("双工作区", "Dual workspace")}</p>
+                <p className="mt-1 text-sm font-semibold">{t("问诊与执行持续联动", "Consult and act together")}</p>
+              </div>
+              <span className="material-symbols-outlined rounded-lg bg-primary-container p-2 text-[20px] text-on-primary-container">hub</span>
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {[
+                ["stethoscope", t("智能问诊与风险分诊", "Consultation and triage")],
+                ["assignment_turned_in", t("健康任务自动承接", "Actionable health tasks")],
+                ["folder_managed", t("档案与记忆持续沉淀", "Records and memory")],
+              ].map(([icon, label]) => (
+                <div key={icon} className="flex items-center gap-3 rounded-lg bg-surface-container-low px-3 py-2.5">
+                  <span className="material-symbols-outlined text-[18px] text-primary">{icon}</span>
+                  <span className="text-sm text-on-surface">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-      {/* Features */}
-      <section className="mx-auto max-w-5xl px-6 py-16 md:px-8">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map((f) => (
-            <div
-              key={f.icon}
-              className="rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-5 transition hover:border-outline-variant/30"
-            >
-              <span className="material-symbols-outlined text-[20px] text-primary mb-3 block">
-                {f.icon}
-              </span>
-              <h3 className="text-sm font-semibold text-on-surface">
-                {f.title}
-              </h3>
-              <p className="mt-1.5 text-xs leading-5 text-on-surface-variant">
-                {f.desc}
+        <section className="border-y border-outline-variant/15 bg-surface-container-low/60">
+          <div className="mx-auto max-w-6xl px-6 py-5 md:px-8 md:py-6">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                  {t("核心流程", "Core workflow")}
+                </p>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">
+                  {t("问诊结果，真正进入健康档案", "Turn consultation results into lasting records")}
+                </h2>
+              </div>
+              <p className="text-xs text-on-surface-variant">{t("完整闭环，可追踪、可管理", "A complete, trackable loop")}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-5">
+              {flow.map((step, index) => (
+                <div
+                  key={step.icon}
+                  className="flex items-center gap-3 rounded-xl border border-outline-variant/15 bg-surface-container-lowest px-3.5 py-3"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
+                    <span className="material-symbols-outlined text-[18px]">{step.icon}</span>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-on-surface-variant/60">0{index + 1}</p>
+                    <p className="text-sm font-medium leading-5 text-on-surface">{step.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 py-6 md:px-8 md:py-7">
+          <div className="mb-4 max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              {t("功能模块", "Capabilities")}
+            </p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">
+              {t("覆盖健康管理的关键环节", "The essentials for connected health management")}
+            </h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map((feature, index) => (
+              <article
+                key={feature.icon}
+                className={`rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-4 transition hover:-translate-y-0.5 hover:border-outline-variant/35 hover:shadow-[0_10px_28px_rgba(68,64,60,0.06)] ${
+                  index === 0 ? "sm:col-span-2" : ""
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
+                    <span className="material-symbols-outlined text-[20px]">{feature.icon}</span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-on-surface">{feature.title}</h3>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-on-surface-variant">{feature.desc}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 pb-6 md:px-8 md:pb-7">
+          <div className="flex flex-col items-center justify-between gap-4 rounded-2xl bg-inverse-surface px-6 py-5 text-center text-inverse-on-surface md:flex-row md:px-8 md:text-left">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight md:text-xl">
+                {t("从现在开始，建立连续的健康记录", "Start building a continuous health record")}
+              </h2>
+              <p className="mt-1.5 text-sm leading-6 text-inverse-on-surface/70">
+                {t("智能问诊、档案、知识与任务管理，一站完成。", "Consultation, records, knowledge, and tasks in one place.")}
               </p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Chat Demo */}
-      <section className="mx-auto max-w-5xl px-6 py-16 md:px-8">
-        <div className="rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-container">
-              <span className="material-symbols-outlined text-[16px] text-primary">smart_toy</span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-on-surface">{t("健康问诊", "Health Consultation")}</p>
-              <p className="text-xs text-on-surface-variant/60">{t("AI 助手在线", "AI Assistant Online")}</p>
-            </div>
+            <Link
+              href="/auth?mode=register"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-on-primary transition hover:opacity-90"
+            >
+              {t("免费开始", "Get Started")}
+              <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+            </Link>
           </div>
-          <div className="space-y-3 max-w-lg">
-            <div className="flex justify-end">
-              <div className="max-w-[75%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-on-primary">
-                {t("我最近头疼，还有点发烧，已经两天了。", "I've had a headache and slight fever for two days.")}
-              </div>
-            </div>
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-surface-container-low px-4 py-2.5 text-sm text-on-surface">
-                {t("了解了。请问头疼的具体位置在哪里？体温大概多少度？", "I see. Where exactly is the headache? What's your approximate temperature?")}
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <div className="max-w-[75%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-on-primary">
-                {t("整个头都疼，体温 38.2°C，有点乏力。", "My whole head hurts, temperature is 38.2°C, feeling a bit weak.")}
-              </div>
-            </div>
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-surface-container-low px-4 py-2.5 text-sm text-on-surface">
-                {t("根据您的症状，建议先观察休息，多饮水。如果体温持续超过 38.5°C，建议到内科门诊就诊。", "Based on your symptoms, rest and hydrate first. If your temperature stays above 38.5°C, please visit the internal medicine clinic.")}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      {/* CTA */}
-      <section className="mx-auto max-w-5xl px-6 py-16 md:px-8">
-        <div className="rounded-xl bg-inverse-surface px-8 py-10 text-center text-inverse-on-surface md:py-12">
-          <h2 className="text-xl font-semibold tracking-tight md:text-2xl">
-            {t("开始管理您的家庭健康", "Start Managing Your Family's Health")}
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-inverse-on-surface/70">
-            {t(
-              "注册即可免费使用智能问诊、健康档案、任务管理等全部功能。",
-              "Sign up to access all features for free: smart consultations, health records, task management, and more."
-            )}
-          </p>
-          <Link
-            href="/auth?mode=register"
-            className="mt-6 inline-block rounded-lg bg-primary px-8 py-2.5 text-sm font-medium text-on-primary transition hover:opacity-90"
-          >
-            {t("免费注册", "Sign Up Free")}
-          </Link>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-outline-variant/15 py-6 text-center text-xs text-on-surface-variant/60">
-        <p>智愈 SmartCare &copy; 2026</p>
+      <footer className="border-t border-outline-variant/15 py-3 text-center text-xs text-on-surface-variant/60">
+        <p>{t("智愈 SmartCare · 健康信息辅助，不替代专业诊疗", "SmartCare · Health guidance, not a substitute for medical care")}</p>
       </footer>
     </div>
   );

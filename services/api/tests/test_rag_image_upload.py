@@ -44,7 +44,7 @@ async def test_ingest_image_persists_file(tmp_path, monkeypatch):
     monkeypatch.setattr(upload, "_extract_text_via_ocr_space", _fake_ocr)
     session = FakeSession()
 
-    result = await rag.ingest_image(
+    result = await rag.ingest_file(
         make_upload("scan.png", b"png-data", "image/png"),
         session,
         None,
@@ -57,12 +57,12 @@ async def test_ingest_image_persists_file(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ingest_image_rejects_non_image(tmp_path, monkeypatch):
+async def test_ingest_file_rejects_unsupported_type(tmp_path, monkeypatch):
     monkeypatch.setattr(rag, "RAG_IMAGE_DIR", tmp_path)
 
     with pytest.raises(HTTPException) as exc:
-        await rag.ingest_image(
-            make_upload("notes.txt", b"not-an-image", "text/plain"),
+        await rag.ingest_file(
+            make_upload("payload.exe", b"unsupported", "application/octet-stream"),
             FakeSession(),
             None,
         )

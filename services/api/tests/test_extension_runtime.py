@@ -31,7 +31,7 @@ def test_progressive_selection_respects_agent_policy():
     assert not select_relevant_skills(skills, "请搜索 PubMed 文献", "risk")
 
 
-def test_medical_literature_turn_only_loads_search_schema():
+def test_medical_literature_turn_loads_search_and_fetch_schemas():
     skill = {
         "skill_id": "medical-literature-review",
         "tools": [
@@ -41,7 +41,10 @@ def test_medical_literature_turn_only_loads_search_schema():
         ],
     }
     selected = select_relevant_tools(skill, "搜索相关医学研究并标注 PMID")
-    assert [tool["name"] for tool in selected] == ["pubmed__pubmed_search_articles"]
+    assert [tool["name"] for tool in selected] == [
+        "pubmed__pubmed_search_articles",
+        "pubmed__pubmed_fetch_articles",
+    ]
 
 
 @pytest.mark.asyncio
